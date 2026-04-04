@@ -12,11 +12,21 @@ const FROM = process.env.EMAIL_FROM || 'noreply@promptsense.io';
 const BASE = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 async function sendEmail({ to, subject, html }) {
+  // Skip sending if SMTP is not configured (logs a warning instead of crashing)
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    logger.warn('📧 Email not sent — SMTP not configured', { to, subject });
+    return;
+  }
   if (process.env.NODE_ENV === 'development') {
     logger.info('📧 Email (dev mode — not sent)', { to, subject });
     return;
   }
-  await transporter.sendMail({ from: FROM, to, subject, html });
+  try {
+    await transporter.sendMail({ from: FROM, to, subject, html });
+  } catch (err) {
+    // Log but never crash the caller — email failure shouldn't block registration/login
+    logger.error('📧 Email send failed', { to, subject, error: err.message });
+  }
 }
 
 async function sendVerificationEmail(user, token) {

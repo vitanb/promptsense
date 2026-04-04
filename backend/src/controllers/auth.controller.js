@@ -40,6 +40,10 @@ async function register(req, res) {
   // Create org
   const slug = orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50) + '-' + uuidv4().slice(0, 6);
   const { rows: [starterPlan] } = await query("SELECT id FROM plans WHERE name='starter'");
+  if (!starterPlan) {
+    logger.error('Starter plan not found — run database migrations and seed');
+    return res.status(500).json({ error: 'Database not initialised. Please contact support.' });
+  }
   const { rows: [org] } = await query(
     `INSERT INTO organizations (name, slug, plan_id, billing_email)
      VALUES ($1,$2,$3,$4) RETURNING id, name, slug`,
