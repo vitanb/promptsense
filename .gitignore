@@ -1,0 +1,42 @@
+# ── Environment / Secrets ─────────────────────────────────────────────────────
+# NEVER commit these — they contain real API keys and passwords
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# ── Terraform ─────────────────────────────────────────────────────────────────
+# tfvars contains your real secrets (JWT, encryption key, Stripe keys)
+*.tfvars
+!*.tfvars.example
+
+# Terraform state and working files — managed remotely in S3
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+.terraform.lock.hcl
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Frontend build output ─────────────────────────────────────────────────────
+frontend/dist/
+frontend/build/
+
+# ── Editor / OS ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ── Backup / temp files ───────────────────────────────────────────────────────
+*.bak
+*.tmp
+*.log

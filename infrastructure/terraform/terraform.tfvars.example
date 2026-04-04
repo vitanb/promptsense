@@ -1,0 +1,32 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars — it is in .gitignore.
+
+aws_region  = "us-east-1"
+environment = "production"
+
+# Route 53 hosted zone must already exist for this domain
+domain_name   = "your-domain.com"
+app_subdomain = "app"
+api_subdomain = "api"
+
+# Secrets — generate with: openssl rand -base64 32
+jwt_secret     = "REPLACE_WITH_RANDOM_STRING_MIN_32_CHARS"
+encryption_key = "REPLACE_WITH_EXACTLY_32_CHARS!!!!"  # must be exactly 32
+
+# Stripe (leave empty to skip billing features)
+stripe_secret_key     = ""
+stripe_webhook_secret = ""
+
+# ECS sizing (increase for production load)
+backend_cpu           = 512   # 0.5 vCPU
+backend_memory        = 1024  # 1 GB
+backend_desired_count = 2
+
+# RDS
+db_instance_class        = "db.t4g.micro"
+db_multi_az              = true
+db_allocated_storage     = 20
+db_backup_retention_days = 7
+
+# ElastiCache
+redis_node_type = "cache.t4g.micro"

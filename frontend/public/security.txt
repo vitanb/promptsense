@@ -1,0 +1,11 @@
+Contact: security@promptsense.io
+Expires: 2026-12-31T23:59:00.000Z
+Preferred-Languages: en
+Canonical: https://promptsense.io/.well-known/security.txt
+Policy: https://promptsense.io/security
+Encryption: https://promptsense.io/pgp-key.txt
+
+# PromptSense Security
+# We take security seriously. If you discover a vulnerability, please
+# report it responsibly at the contact address above.
+# We aim to respond within 48 hours and resolve critical issues within 7 days.

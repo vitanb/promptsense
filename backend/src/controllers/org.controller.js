@@ -1,0 +1,164 @@
+const crypto = require('crypto');
+const { query } = require('../db/pool');
+const { encrypt, decrypt } = require('../utils/encryption');
+const { sendInviteEmail } = require('../utils/email');
+
+// ── MEMBERS ──────────────────────────────────────────────────────────────────
+async function listMembers(req, res) {
+  const { rows } = await query(
+    `SELECT m.id, m.role, m.active, m.created_at, m.invite_status, m.department,
+            u.id as user_id, u.email, u.full_name, u.avatar_url, u.last_login_at
+     FROM memberships m JOIN users u ON u.id=m.user_id
+     WHERE m.org_id=$1 ORDER BY m.created_at`,
+    [req.orgId]
+  );
+  res.json(rows);
+}
+
+async function inviteMember(req, res) {
+  const { email, role = 'user' } = req.body;
+
+  // Check member limit
+  const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM memberships WHERE org_id=$1 AND active=true', [req.orgId]);
+  if (req.org.members_limit > 0 && parseInt(count) >= req.org.members_limit) {
+    return res.status(402).json({ error: 'Member limit reached for your plan. Upgrade to add more.' });
+  }
+
+  // Find or create user
+  let { rows: [user] } = await query('SELECT id, email, full_name FROM users WHERE email=$1', [email.toLowerCase()]);
+  const token = crypto.randomBytes(32).toString('hex');
+
+  if (!user) {
+    const { rows: [newUser] } = await query(
+      'INSERT INTO users (email) VALUES ($1) RETURNING id, email, full_name',
+      [email.toLowerCase()]
+    );
+    user = newUser;
+  }
+
+  // Check if already a member
+  const { rows: [existing] } = await query('SELECT id FROM memberships WHERE org_id=$1 AND user_id=$2', [req.orgId, user.id]);
+  if (existing) return res.status(409).json({ error: 'User is already a member' });
+
+  await query(
+    'INSERT INTO memberships (org_id,user_id,role,invited_by,invite_token,invite_status) VALUES ($1,$2,$3,$4,$5,$6)',
+    [req.orgId, user.id, role, req.userId, token, 'pending']
+  );
+
+  const { rows: [org] } = await query('SELECT name FROM organizations WHERE id=$1', [req.orgId]);
+  const { rows: [inviter] } = await query('SELECT full_name FROM users WHERE id=$1', [req.userId]);
+  await sendInviteEmail(user, org, inviter, token);
+
+  res.json({ message: `Invitation sent to ${email}` });
+}
+
+async function updateMemberRole(req, res) {
+  const { memberId } = req.params;
+  const { role } = req.body;
+  if (!['user', 'developer', 'administrator'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+
+  // Prevent removing last admin
+  if (role !== 'administrator') {
+    const { rows: [{ count }] } = await query("SELECT COUNT(*) FROM memberships WHERE org_id=$1 AND role='administrator' AND active=true", [req.orgId]);
+    if (parseInt(count) <= 1) {
+      const { rows: [m] } = await query('SELECT role FROM memberships WHERE id=$1 AND org_id=$2', [memberId, req.orgId]);
+      if (m?.role === 'administrator') return res.status(400).json({ error: 'Cannot remove the last administrator' });
+    }
+  }
+
+  const { rows: [m] } = await query('UPDATE memberships SET role=$1 WHERE id=$2 AND org_id=$3 RETURNING *', [role, memberId, req.orgId]);
+  if (!m) return res.status(404).json({ error: 'Member not found' });
+  res.json(m);
+}
+
+async function updateMemberDepartment(req, res) {
+  const { memberId } = req.params;
+  const { department } = req.body;
+  // Allow empty string to clear the department
+  const dept = typeof department === 'string' ? department.trim().slice(0, 100) : null;
+  const { rows: [m] } = await query(
+    'UPDATE memberships SET department=$1 WHERE id=$2 AND org_id=$3 RETURNING id, role, department',
+    [dept || null, memberId, req.orgId]
+  );
+  if (!m) return res.status(404).json({ error: 'Member not found' });
+  res.json(m);
+}
+
+async function removeMember(req, res) {
+  const { memberId } = req.params;
+  await query('UPDATE memberships SET active=false WHERE id=$1 AND org_id=$2', [memberId, req.orgId]);
+  res.json({ removed: true });
+}
+
+// ── PROVIDER CONNECTIONS ──────────────────────────────────────────────────────
+async function listProviders(req, res) {
+  const { rows } = await query(
+    'SELECT id, provider, label, endpoint_url, model, max_tokens, system_prompt, enabled, created_at FROM provider_connections WHERE org_id=$1',
+    [req.orgId]
+  );
+  // Never return encrypted keys
+  res.json(rows.map(r => ({ ...r, hasKey: true })));
+}
+
+async function upsertProvider(req, res) {
+  const { provider, label, apiKey, endpointUrl, model, maxTokens, systemPrompt, enabled } = req.body;
+  const encryptedKey = apiKey ? encrypt(apiKey) : undefined;
+
+  const { rows: [existing] } = await query('SELECT id FROM provider_connections WHERE org_id=$1 AND provider=$2', [req.orgId, provider]);
+
+  if (existing) {
+    const sets = ['label=COALESCE($1,label)', 'endpoint_url=COALESCE($2,endpoint_url)', 'model=COALESCE($3,model)',
+                  'max_tokens=COALESCE($4,max_tokens)', 'system_prompt=COALESCE($5,system_prompt)', 'enabled=COALESCE($6,enabled)'];
+    const params = [label, endpointUrl, model, maxTokens, systemPrompt, enabled];
+    if (encryptedKey) { sets.push(`encrypted_key=$${params.length+1}`); params.push(encryptedKey); }
+    params.push(existing.id, req.orgId);
+    const { rows: [conn] } = await query(
+      `UPDATE provider_connections SET ${sets.join(',')} WHERE id=$${params.length-1} AND org_id=$${params.length} RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
+      params
+    );
+    return res.json(conn);
+  }
+
+  const { rows: [conn] } = await query(
+    `INSERT INTO provider_connections (org_id,provider,label,encrypted_key,endpoint_url,model,max_tokens,system_prompt,enabled)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
+    [req.orgId, provider, label||provider, encryptedKey||null, endpointUrl||null, model||null, maxTokens||1000, systemPrompt||'You are a helpful assistant.', enabled??true]
+  );
+  res.status(201).json(conn);
+}
+
+async function deleteProvider(req, res) {
+  await query('DELETE FROM provider_connections WHERE provider=$1 AND org_id=$2', [req.params.provider, req.orgId]);
+  res.json({ deleted: true });
+}
+
+// ── API KEYS ──────────────────────────────────────────────────────────────────
+async function listApiKeys(req, res) {
+  const { rows } = await query(
+    'SELECT id, name, key_prefix, last_used_at, expires_at, revoked, created_at FROM api_keys WHERE org_id=$1 ORDER BY created_at DESC',
+    [req.orgId]
+  );
+  res.json(rows);
+}
+
+async function createApiKey(req, res) {
+  const { name, expiresAt } = req.body;
+  const raw = 'ps_live_' + crypto.randomBytes(24).toString('hex');
+  const hash = crypto.createHash('sha256').update(raw).digest('hex');
+  const prefix = raw.slice(0, 20) + '...';
+
+  await query(
+    'INSERT INTO api_keys (org_id,created_by,name,key_hash,key_prefix,expires_at) VALUES ($1,$2,$3,$4,$5,$6)',
+    [req.orgId, req.userId, name, hash, prefix, expiresAt||null]
+  );
+
+  // Return the raw key ONCE — never stored in plaintext
+  res.status(201).json({ key: raw, prefix, message: 'Store this key securely — it will not be shown again.' });
+}
+
+async function revokeApiKey(req, res) {
+  await query('UPDATE api_keys SET revoked=true WHERE id=$1 AND org_id=$2', [req.params.id, req.orgId]);
+  res.json({ revoked: true });
+}
+
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey };

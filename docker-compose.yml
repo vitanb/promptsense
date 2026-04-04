@@ -1,0 +1,76 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ps_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: promptsense
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: promptsense_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U promptsense -d promptsense_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: ps_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgresql://promptsense:password@postgres:5432/promptsense_db
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      JWT_REFRESH_SECRET: dev-refresh-secret-change-in-production
+      JWT_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
+      SMTP_HOST: ${SMTP_HOST:-smtp.mailtrap.io}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: noreply@promptsense.io
+      ENCRYPTION_KEY: 00112233445566778899aabbccddeeff
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend/src:/app/src  # Hot reload in dev
+      - ./backend/migrations:/app/migrations
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    image: node:20-alpine
+    container_name: ps_frontend
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VITE_API_URL: http://backend:4000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:

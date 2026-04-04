@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PromptSense — Enterprise LLM Guardrails</title>
+    <meta name="description" content="Universal LLM guardrail and compliance platform for enterprise teams." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      :root {
+        --c-purple: #7F77DD; --c-purple-light: #EEEDFE; --c-purple-dark: #3C3489;
+        --c-green: #1D9E75; --c-red: #E24B4A; --c-amber: #BA7517;
+        --c-blue: #378ADD; --c-coral: #D85A30;
+        --c-bg: #ffffff; --c-bg2: #F8F8F7; --c-bg3: #F1EFE8;
+        --c-text: #1a1a1a; --c-text2: #555; --c-text3: #999;
+        --c-border: rgba(0,0,0,0.10); --c-border2: rgba(0,0,0,0.18);
+        --radius: 8px; --radius-lg: 12px;
+        --shadow: 0 1px 4px rgba(0,0,0,0.08);
+        --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        font-size: 14px; line-height: 1.6; color: var(--c-text); background: var(--c-bg);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --c-bg: #111; --c-bg2: #1a1a1a; --c-bg3: #222;
+          --c-text: #f0f0f0; --c-text2: #aaa; --c-text3: #666;
+          --c-border: rgba(255,255,255,0.10); --c-border2: rgba(255,255,255,0.18);
+        }
+      }
+      a { color: inherit; text-decoration: none; }
+      button { font-family: inherit; cursor: pointer; }
+      input, select, textarea { font-family: inherit; font-size: 13px; }
+      #root { min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
