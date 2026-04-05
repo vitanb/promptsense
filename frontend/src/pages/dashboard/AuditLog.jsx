@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useOrg } from '../../context/OrgContext';
+import { useAuth } from '../../context/AuthContext';
 import { promptApi, orgApi, billingApi } from '../../services/api';
 import { Card, Btn, Input, Select, Badge, Alert, PageHeader, Modal, MetricCard, Empty, Spinner } from '../../components/UI';
 
@@ -105,6 +106,7 @@ export function Members() {
   const [loading, setLoading] = useState(false);
   const [editingDept, setEditingDept] = useState(null); // memberId being edited
   const [deptDraft, setDeptDraft] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState(null); // member object to confirm removal
 
   useEffect(() => { if (orgId) orgApi.members(orgId).then(setMembers).catch(()=>{}); }, [orgId]);
 
@@ -139,6 +141,7 @@ export function Members() {
   const remove = async (memberId) => {
     await orgApi.removeMember(orgId, memberId);
     setMembers(ms => ms.map(m => m.id===memberId ? {...m,active:false} : m));
+    setConfirmRemove(null);
   };
 
   const ROLE_COLORS = { user:'#378ADD', developer:'#BA7517', administrator:'#7F77DD' };
@@ -149,6 +152,20 @@ export function Members() {
         action={can('administrator') && <Btn size="sm" onClick={() => setShowInvite(true)}>+ Invite member</Btn>} />
 
       <Alert type="success" message={success} />
+
+      {/* Confirm remove modal */}
+      <Modal open={!!confirmRemove} onClose={()=>setConfirmRemove(null)} title="Remove member">
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <p style={{ fontSize:13, color:'var(--c-text2)', margin:0 }}>
+            Remove <strong>{confirmRemove?.full_name || confirmRemove?.email}</strong> from this organization? They will lose access immediately but their account won't be deleted.
+          </p>
+          <div style={{ display:'flex', gap:8 }}>
+            <Btn variant="danger" onClick={() => remove(confirmRemove?.id)}>Yes, remove</Btn>
+            <Btn variant="secondary" onClick={()=>setConfirmRemove(null)}>Cancel</Btn>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={showInvite} onClose={()=>setShowInvite(false)} title="Invite team member">
         <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           <Alert type="error" message={error} />
@@ -218,7 +235,7 @@ export function Members() {
             ) : <Badge text={m.role} color={ROLE_COLORS[m.role]||'#888'} small />}
 
             {can('administrator') && m.active && (
-              <Btn size="sm" variant="secondary" onClick={()=>remove(m.id)}>Remove</Btn>
+              <Btn size="sm" variant="secondary" onClick={()=>setConfirmRemove(m)}>Remove</Btn>
             )}
           </div>
         ))}
@@ -331,15 +348,33 @@ export function Billing() {
 }
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
+const TIMEZONES = ['UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','Europe/London','Europe/Paris','Europe/Berlin','Asia/Tokyo','Asia/Singapore','Asia/Dubai','Australia/Sydney'];
+
 export function Settings() {
   const { currentOrg, orgDetail, setOrgDetail, can } = useOrg();
+  const { deleteAccount } = useAuth();
   const orgId = currentOrg?.org_id;
   const [form, setForm] = useState({ name:'', billingEmail:'' });
+  const [branding, setBranding] = useState({ logoUrl:'', primaryColor:'#7F77DD', customDomain:'', timezone:'UTC' });
   const [success, setSuccess] = useState('');
+  const [brandingSuccess, setBrandingSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [brandingLoading, setBrandingLoading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
-    if (orgDetail) setForm({ name: orgDetail.name||'', billingEmail: orgDetail.billing_email||'' });
+    if (orgDetail) {
+      setForm({ name: orgDetail.name||'', billingEmail: orgDetail.billing_email||'' });
+      setBranding({
+        logoUrl:      orgDetail.logo_url || '',
+        primaryColor: orgDetail.primary_color || '#7F77DD',
+        customDomain: orgDetail.custom_domain || '',
+        timezone:     orgDetail.timezone || 'UTC',
+      });
+    }
   }, [orgDetail]);
 
   const save = async () => {
@@ -350,6 +385,29 @@ export function Settings() {
       setSuccess('Settings saved');
     } catch (e) { alert(e.response?.data?.error || 'Failed to save'); }
     finally { setLoading(false); }
+  };
+
+  const saveBranding = async () => {
+    setBrandingLoading(true);
+    try {
+      const updated = await orgApi.updateBranding(orgId, branding);
+      setOrgDetail(o => ({ ...o, ...updated }));
+      setBrandingSuccess('Branding saved');
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save branding'); }
+    finally { setBrandingLoading(false); }
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteError('');
+    setDeleteLoading(true);
+    try {
+      await deleteAccount(deletePassword);
+      window.location.href = '/auth/login';
+    } catch (e) {
+      setDeleteError(e.response?.data?.error || 'Failed to delete account. Check your password.');
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   return (
@@ -368,6 +426,90 @@ export function Settings() {
           {can('administrator') && <Btn onClick={save} loading={loading} style={{ alignSelf:'flex-start' }}>Save changes</Btn>}
         </div>
       </Card>
+
+      {/* ── Branding ── */}
+      {can('administrator') && (
+        <Card style={{ maxWidth:520, marginTop:'1.5rem' }}>
+          <div style={{ fontSize:13, fontWeight:600, marginBottom:'1rem' }}>Tenant branding</div>
+          <Alert type="success" message={brandingSuccess} />
+          <div style={{ display:'flex', flexDirection:'column', gap:14, marginTop: brandingSuccess?12:0 }}>
+            {/* Color picker */}
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              <label style={{ fontSize:11, color:'var(--c-text2)', fontWeight:500 }}>Primary color</label>
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <input type="color" value={branding.primaryColor}
+                  onChange={e => setBranding(b => ({ ...b, primaryColor: e.target.value }))}
+                  style={{ width:36, height:36, borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', cursor:'pointer', padding:2 }} />
+                <input type="text" value={branding.primaryColor}
+                  onChange={e => setBranding(b => ({ ...b, primaryColor: e.target.value }))}
+                  style={{ fontSize:12, padding:'6px 10px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)', width:100, fontFamily:'monospace', outline:'none' }} />
+                <div style={{ width:24, height:24, borderRadius:'50%', background:branding.primaryColor }} />
+              </div>
+            </div>
+
+            <Input label="Logo URL" value={branding.logoUrl} onChange={e => setBranding(b => ({ ...b, logoUrl: e.target.value }))} placeholder="https://cdn.yourcompany.com/logo.png" />
+
+            {branding.logoUrl && (
+              <div style={{ padding:'8px 12px', background:'var(--c-bg2)', borderRadius:'var(--radius)', display:'flex', alignItems:'center', gap:8 }}>
+                <img src={branding.logoUrl} alt="Logo preview" style={{ height:28, objectFit:'contain', maxWidth:120 }} onError={e => { e.target.style.display='none'; }} />
+                <span style={{ fontSize:11, color:'var(--c-text3)' }}>Logo preview</span>
+              </div>
+            )}
+
+            <Input label="Custom domain (optional)" value={branding.customDomain} onChange={e => setBranding(b => ({ ...b, customDomain: e.target.value }))} placeholder="ai.yourcompany.com" />
+
+            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <label style={{ fontSize:11, color:'var(--c-text2)', fontWeight:500 }}>Timezone</label>
+              <select value={branding.timezone} onChange={e => setBranding(b => ({ ...b, timezone: e.target.value }))}
+                style={{ fontSize:12, padding:'7px 10px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)', outline:'none' }}>
+                {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+              </select>
+            </div>
+
+            <Btn onClick={saveBranding} loading={brandingLoading} style={{ alignSelf:'flex-start' }}>Save branding</Btn>
+          </div>
+        </Card>
+      )}
+
+      {/* ── Danger Zone ── */}
+      <div style={{ maxWidth:520, marginTop:'2rem', border:'0.5px solid var(--c-red)44', borderRadius:'var(--radius)', overflow:'hidden' }}>
+        <div style={{ padding:'10px 14px', background:'var(--c-red)0D', borderBottom:'0.5px solid var(--c-red)44' }}>
+          <span style={{ fontSize:12, fontWeight:600, color:'var(--c-red)', letterSpacing:'0.04em', textTransform:'uppercase' }}>Danger zone</span>
+        </div>
+        <div style={{ padding:'14px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:500 }}>Delete my account</div>
+            <div style={{ fontSize:11, color:'var(--c-text2)', marginTop:2 }}>Permanently remove your account and all associated data. This cannot be undone.</div>
+          </div>
+          <Btn size="sm" variant="danger" onClick={() => { setDeletePassword(''); setDeleteError(''); setShowDeleteModal(true); }}>
+            Delete account
+          </Btn>
+        </div>
+      </div>
+
+      {/* Delete account confirmation modal */}
+      <Modal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} title="Delete your account">
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <p style={{ fontSize:13, color:'var(--c-text2)', margin:0 }}>
+            This will <strong>permanently delete</strong> your account, revoke all sessions, and remove you from all organizations. This action cannot be undone.
+          </p>
+          <Alert type="error" message={deleteError} />
+          <Input
+            label="Confirm your password"
+            type="password"
+            value={deletePassword}
+            onChange={e => setDeletePassword(e.target.value)}
+            placeholder="Enter your current password"
+            onKeyDown={e => e.key === 'Enter' && deletePassword && handleDeleteAccount()}
+          />
+          <div style={{ display:'flex', gap:8 }}>
+            <Btn variant="danger" onClick={handleDeleteAccount} loading={deleteLoading} disabled={!deletePassword}>
+              Yes, permanently delete
+            </Btn>
+            <Btn variant="secondary" onClick={() => setShowDeleteModal(false)}>Cancel</Btn>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

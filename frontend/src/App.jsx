@@ -29,6 +29,7 @@ import Billing         from './pages/dashboard/Billing';
 import Settings        from './pages/dashboard/Settings';
 import ApiKeys         from './pages/dashboard/ApiKeys';
 import Gauntlet        from './pages/dashboard/Gauntlet';
+import SuperAdmin      from './pages/dashboard/SuperAdmin';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -76,6 +77,7 @@ export default function App() {
         <Route path="settings"     element={<Settings />} />
         <Route path="api-keys"     element={<ApiKeys />} />
         <Route path="gauntlet"     element={<Gauntlet />} />
+        <Route path="super-admin"  element={<SuperAdmin />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -44,4 +44,7 @@ router.patch('/', requireRole('administrator'), async (req, res) => {
   res.json(org);
 });
 
+// Tenant branding (logo, color, domain)
+router.patch('/branding', requireRole('administrator'), ctrl.updateBranding);
+
 module.exports = router;

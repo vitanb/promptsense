@@ -11,12 +11,13 @@ async function authenticate(req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const { rows } = await query(
-      'SELECT id, email, full_name, avatar_url, email_verified FROM users WHERE id = $1',
+      'SELECT id, email, full_name, avatar_url, email_verified, is_superuser FROM users WHERE id = $1',
       [payload.userId]
     );
     if (!rows[0]) return res.status(401).json({ error: 'User not found' });
     req.user = rows[0];
     req.userId = rows[0].id;
+    req.isSuperuser = rows[0].is_superuser === true;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
@@ -31,7 +32,9 @@ async function loadOrg(req, res, next) {
 
   const { rows } = await query(
     `SELECT m.role, m.active, o.id as org_id, o.name as org_name, o.slug, o.plan_id,
-            o.subscription_status, o.trial_ends_at, p.name as plan_name, p.requests_per_month,
+            o.subscription_status, o.trial_ends_at, o.tenant_status, o.deleted_at,
+            o.primary_color, o.logo_url, o.custom_domain, o.timezone,
+            p.name as plan_name, p.requests_per_month,
             p.members_limit, p.guardrails_limit, p.webhooks_limit
      FROM memberships m
      JOIN organizations o ON o.id = m.org_id
@@ -40,6 +43,17 @@ async function loadOrg(req, res, next) {
     [req.userId, orgId]
   );
   if (!rows[0] || !rows[0].active) return res.status(403).json({ error: 'Access denied to this organization' });
+
+  // Block access to deleted tenants
+  if (rows[0].deleted_at) return res.status(403).json({ error: 'This organization has been deleted', code: 'ORG_DELETED' });
+
+  // Block access to suspended tenants (superusers bypass this check)
+  if (rows[0].tenant_status === 'suspended' && !req.isSuperuser) {
+    return res.status(402).json({
+      error: 'This organization has been suspended. Please contact support.',
+      code: 'ORG_SUSPENDED',
+    });
+  }
 
   req.org = rows[0];
   req.orgId = orgId;
@@ -57,6 +71,12 @@ function requireRole(minRole) {
     if (userLevel < minLevel) return res.status(403).json({ error: `Requires ${minRole} role or higher` });
     next();
   };
+}
+
+// Platform-level superuser gate (only is_superuser=true users pass)
+function requireSuperuser(req, res, next) {
+  if (!req.isSuperuser) return res.status(403).json({ error: 'Super-user access required' });
+  next();
 }
 
 // API key auth (for SDK proxy requests)
@@ -83,4 +103,4 @@ async function authenticateApiKey(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, loadOrg, requireRole, authenticateApiKey };
+module.exports = { authenticate, loadOrg, requireRole, requireSuperuser, authenticateApiKey };

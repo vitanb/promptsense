@@ -90,6 +90,37 @@ async function removeMember(req, res) {
   res.json({ removed: true });
 }
 
+// ── TENANT BRANDING ───────────────────────────────────────────────────────────
+async function updateBranding(req, res) {
+  const { logoUrl, primaryColor, customDomain, timezone, locale } = req.body;
+
+  // Validate color format (allow null/empty to reset)
+  if (primaryColor && !/^#[0-9A-Fa-f]{6}$/.test(primaryColor)) {
+    return res.status(400).json({ error: 'primaryColor must be a valid hex color (e.g. #7F77DD)' });
+  }
+
+  // Validate custom domain (basic check)
+  if (customDomain && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(customDomain.toLowerCase())) {
+    return res.status(400).json({ error: 'customDomain must be a valid domain (e.g. ai.yourcompany.com)' });
+  }
+
+  const { rows: [org] } = await query(
+    `UPDATE organizations
+     SET logo_url      = COALESCE($1, logo_url),
+         primary_color = COALESCE($2, primary_color),
+         custom_domain = $3,
+         timezone      = COALESCE($4, timezone),
+         locale        = COALESCE($5, locale),
+         updated_at    = NOW()
+     WHERE id = $6
+     RETURNING id, logo_url, primary_color, custom_domain, timezone, locale`,
+    [logoUrl || null, primaryColor || null, customDomain || null, timezone || null, locale || null, req.orgId]
+  );
+
+  if (!org) return res.status(404).json({ error: 'Organization not found' });
+  res.json(org);
+}
+
 // ── PROVIDER CONNECTIONS ──────────────────────────────────────────────────────
 async function listProviders(req, res) {
   const { rows } = await query(
@@ -161,4 +192,4 @@ async function revokeApiKey(req, res) {
   res.json({ revoked: true });
 }
 
-module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey };
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey };

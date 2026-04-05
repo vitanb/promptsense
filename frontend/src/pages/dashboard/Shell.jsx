@@ -22,6 +22,8 @@ const NAV = [
   { to:'api-keys',     icon:'🔑', label:'API keys', minRole:'developer' },
   { to:'billing',      icon:'💳', label:'Billing',  minRole:'administrator' },
   { to:'settings',     icon:'⚙', label:'Settings', minRole:'administrator' },
+  null,
+  { to:'super-admin',  icon:'🛡️', label:'Super Admin', superuserOnly: true },
 ];
 
 const ROLE_COLORS = { user:'#378ADD', developer:'#BA7517', administrator:'#7F77DD' };
@@ -65,6 +67,7 @@ function useOnboardingProgress(orgId) {
 
 export default function DashboardShell() {
   const { user, orgs, logout } = useAuth();
+  const isSuperuser = user?.isSuperuser === true;
   const { currentOrg, orgDetail, role, switchOrg, can } = useOrg();
   const navigate = useNavigate();
 
@@ -82,8 +85,18 @@ export default function DashboardShell() {
     transition:'background 0.1s',
   });
 
+  const isSuspended = orgDetail?.tenant_status === 'suspended';
+
   return (
-    <div style={{ display:'flex', minHeight:'100vh' }}>
+    <div style={{ display:'flex', minHeight:'100vh', flexDirection:'column' }}>
+      {/* Suspended org warning banner */}
+      {isSuspended && (
+        <div style={{ background:'var(--c-red)', color:'#fff', padding:'8px 20px', fontSize:12, fontWeight:500, display:'flex', alignItems:'center', gap:8, zIndex:100, flexShrink:0 }}>
+          <span>⚠️</span>
+          <span>This organization has been <strong>suspended</strong>.{orgDetail.suspended_reason ? ` Reason: ${orgDetail.suspended_reason}.` : ''} Contact support to reactivate.</span>
+        </div>
+      )}
+      <div style={{ display:'flex', flex:1 }}>
       {/* Sidebar */}
       <aside style={sidebarStyle}>
         {/* Logo */}
@@ -109,7 +122,14 @@ export default function DashboardShell() {
             {orgDetail && (
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:5 }}>
                 <span style={{ fontSize:10, color:'var(--c-text3)' }}>{orgDetail.plan_name} plan</span>
-                <span style={{ fontSize:10, padding:'1px 6px', borderRadius:3, background: ROLE_COLORS[role]+'22', color: ROLE_COLORS[role] }}>{role}</span>
+                <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                  {orgDetail.tenant_status === 'suspended' && (
+                    <span style={{ fontSize:9, padding:'1px 5px', borderRadius:3, background:'var(--c-red)22', color:'var(--c-red)', fontWeight:600 }}>SUSPENDED</span>
+                  )}
+                  <span style={{ fontSize:10, padding:'1px 6px', borderRadius:3, background: (isSuperuser ? '#E04E4E' : (orgDetail.primary_color || ROLE_COLORS[role]))+'22', color: isSuperuser ? '#E04E4E' : (orgDetail.primary_color || ROLE_COLORS[role]) }}>
+                    {isSuperuser ? 'superuser' : role}
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -138,6 +158,7 @@ export default function DashboardShell() {
           {NAV.map((item, i) => {
             if (!item) return <div key={i} style={{ height:1, background:'var(--c-border)', margin:'6px 16px' }} />;
             if (item.minRole && !can(item.minRole)) return null;
+            if (item.superuserOnly && !isSuperuser) return null;
             // Hide "Get started" once onboarding progress is gone
             if (item.onboardingOnly && !progress) return null;
             return (
@@ -157,11 +178,14 @@ export default function DashboardShell() {
         {/* User footer */}
         <div style={{ padding:'12px 16px', borderTop:'0.5px solid var(--c-border)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-            <div style={{ width:28, height:28, borderRadius:'50%', background:'var(--c-purple)22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:500, color:'var(--c-purple)' }}>
+            <div style={{ width:28, height:28, borderRadius:'50%', background: isSuperuser ? 'var(--c-red)22' : 'var(--c-purple)22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:500, color: isSuperuser ? 'var(--c-red)' : 'var(--c-purple)' }}>
               {user?.fullName?.slice(0,2).toUpperCase() || user?.email?.slice(0,2).toUpperCase()}
             </div>
             <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:12, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.fullName || user?.email}</div>
+              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                <span style={{ fontSize:12, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.fullName || user?.email}</span>
+                {isSuperuser && <span style={{ fontSize:9, padding:'1px 5px', borderRadius:3, background:'var(--c-red)22', color:'var(--c-red)', fontWeight:600, flexShrink:0 }}>SUPER</span>}
+              </div>
               <div style={{ fontSize:10, color:'var(--c-text3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.email}</div>
             </div>
           </div>
@@ -175,6 +199,7 @@ export default function DashboardShell() {
       <main style={{ flex:1, padding:'2rem', overflowY:'auto', minHeight:'100vh' }}>
         <Outlet />
       </main>
+    </div>
     </div>
   );
 }

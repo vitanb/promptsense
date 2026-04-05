@@ -56,14 +56,16 @@ export const authApi = {
   verifyEmail:    (token)            => api.post('/auth/verify-email', { token }).then(r => r.data),
   forgotPassword: (email)            => api.post('/auth/forgot-password', { email }).then(r => r.data),
   resetPassword:  (token, password)  => api.post('/auth/reset-password', { token, password }).then(r => r.data),
+  deleteAccount:  (password)         => api.delete('/auth/account', { data: { password } }).then(r => r.data),
 };
 
 // ── Org ───────────────────────────────────────────────────────────────────────
 const o = (orgId) => `/orgs/${orgId}`;
 
 export const orgApi = {
-  get:    (orgId) => api.get(o(orgId)).then(r => r.data),
-  update: (orgId, data) => api.patch(o(orgId), data).then(r => r.data),
+  get:           (orgId)       => api.get(o(orgId)).then(r => r.data),
+  update:        (orgId, data) => api.patch(o(orgId), data).then(r => r.data),
+  updateBranding:(orgId, data) => api.patch(`${o(orgId)}/branding`, data).then(r => r.data),
 
   // Members
   members:          (orgId)                   => api.get(`${o(orgId)}/members`).then(r => r.data),
@@ -130,6 +132,25 @@ export const gauntletApi = {
   getRun:     (orgId, runId)       => api.get(`${o(orgId)}/gauntlet/runs/${runId}`).then(r => r.data),
   results:    (orgId, runId, params) => api.get(`${o(orgId)}/gauntlet/runs/${runId}/results`, { params }).then(r => r.data),
   deleteRun:  (orgId, runId)       => api.delete(`${o(orgId)}/gauntlet/runs/${runId}`).then(r => r.data),
+};
+
+// ── Super Admin ───────────────────────────────────────────────────────────────
+export const adminApi = {
+  stats:              ()                    => api.get('/admin/stats').then(r => r.data),
+  // Users
+  listUsers:          (params)              => api.get('/admin/users', { params }).then(r => r.data),
+  getUser:            (userId)              => api.get(`/admin/users/${userId}`).then(r => r.data),
+  deleteUser:         (userId)              => api.delete(`/admin/users/${userId}`).then(r => r.data),
+  toggleSuperuser:    (userId)              => api.patch(`/admin/users/${userId}/superuser`).then(r => r.data),
+  resetPassword:      (userId, newPassword) => api.post(`/admin/users/${userId}/reset-password`, { newPassword }).then(r => r.data),
+  // Tenants (orgs)
+  listOrgs:           (params)              => api.get('/admin/orgs', { params }).then(r => r.data),
+  getOrg:             (orgId)              => api.get(`/admin/orgs/${orgId}`).then(r => r.data),
+  createOrg:          (data)               => api.post('/admin/orgs', data).then(r => r.data),
+  updateOrgPlan:      (orgId, planName)     => api.patch(`/admin/orgs/${orgId}/plan`, { planName }).then(r => r.data),
+  suspendOrg:         (orgId, reason)       => api.post(`/admin/orgs/${orgId}/suspend`, { reason }).then(r => r.data),
+  activateOrg:        (orgId)              => api.post(`/admin/orgs/${orgId}/activate`).then(r => r.data),
+  deleteOrg:          (orgId)              => api.delete(`/admin/orgs/${orgId}`).then(r => r.data),
 };
 
 // ── Billing ───────────────────────────────────────────────────────────────────

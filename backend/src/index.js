@@ -13,6 +13,7 @@ const configRoutes   = require('./routes/config.routes');
 const proxyRoutes    = require('./routes/proxy.routes');
 const billingRoutes  = require('./routes/billing.routes');
 const gauntletRoutes = require('./routes/gauntlet.routes');
+const adminRoutes    = require('./routes/admin.routes');
 const { stripeWebhook } = require('./controllers/billing.controller');
 
 const app = express();
@@ -49,6 +50,7 @@ app.use('/api/orgs/:orgId',               configRoutes);
 app.use('/api/orgs/:orgId',               proxyRoutes);
 app.use('/api/orgs/:orgId/billing',       billingRoutes);
 app.use('/api/orgs/:orgId/gauntlet',     gauntletRoutes);
+app.use('/api/admin',                    adminRoutes);
 
 // Plans (public)
 app.get('/api/plans', async (req, res) => {

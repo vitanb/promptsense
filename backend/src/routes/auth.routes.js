@@ -25,5 +25,6 @@ router.post('/verify-email',     validate(schemas.verify),   ctrl.verifyEmail);
 router.post('/forgot-password',  validate(schemas.forgot),   ctrl.forgotPassword);
 router.post('/reset-password',   validate(schemas.reset),    ctrl.resetPassword);
 router.get('/me',                authenticate,               ctrl.me);
+router.delete('/account',        authenticate,               ctrl.deleteAccount);
 
 module.exports = router;

@@ -183,6 +183,41 @@ async function resetPassword(req, res) {
   res.json({ message: 'Password reset successfully' });
 }
 
+// DELETE /auth/account
+async function deleteAccount(req, res) {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password is required to delete your account' });
+
+  const { rows: [user] } = await query('SELECT * FROM users WHERE id=$1', [req.userId]);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (!user.password_hash) return res.status(400).json({ error: 'Social login accounts cannot be deleted this way — contact support.' });
+
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+
+  // Block deletion if the user is the sole admin of an org that still has other active members
+  const { rows: soloAdminOrgs } = await query(`
+    SELECT m.org_id FROM memberships m
+    WHERE m.user_id=$1 AND m.role='administrator' AND m.active=true
+      AND (SELECT COUNT(*) FROM memberships m2 WHERE m2.org_id=m.org_id AND m2.role='administrator' AND m2.active=true) = 1
+      AND (SELECT COUNT(*) FROM memberships m3 WHERE m3.org_id=m.org_id AND m3.active=true) > 1
+  `, [req.userId]);
+
+  if (soloAdminOrgs.length > 0) {
+    return res.status(400).json({ error: 'You are the sole administrator of an organization that has other members. Assign another administrator or remove all members first.' });
+  }
+
+  // Revoke all sessions
+  await query('UPDATE refresh_tokens SET revoked=true WHERE user_id=$1', [req.userId]);
+  // Remove all memberships
+  await query('DELETE FROM memberships WHERE user_id=$1', [req.userId]);
+  // Hard-delete the user (cascades api_keys, refresh_tokens, etc.)
+  await query('DELETE FROM users WHERE id=$1', [req.userId]);
+
+  logger.info('User account deleted', { userId: req.userId });
+  res.json({ message: 'Account deleted successfully' });
+}
+
 // POST /auth/logout
 async function logout(req, res) {
   const { refreshToken } = req.body;
@@ -197,11 +232,16 @@ async function logout(req, res) {
 async function me(req, res) {
   const { rows: memberships } = await query(
     `SELECT m.role, m.org_id, o.name as org_name, o.slug, o.subscription_status, p.name as plan_name
-     FROM memberships m JOIN organizations o ON o.id=m.org_id JOIN plans p ON p.id=o.plan_id
-     WHERE m.user_id=$1 AND m.active=true`,
+     FROM memberships m
+     JOIN organizations o ON o.id=m.org_id
+     JOIN plans p ON p.id=o.plan_id
+     WHERE m.user_id=$1 AND m.active=true AND o.deleted_at IS NULL`,
     [req.userId]
   );
-  res.json({ user: req.user, orgs: memberships });
+  res.json({
+    user: { ...req.user, isSuperuser: req.user.is_superuser === true },
+    orgs: memberships
+  });
 }
 
-module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me };
+module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me, deleteAccount };
