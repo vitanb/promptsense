@@ -6,6 +6,7 @@ const { query } = require('../db/pool');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
 const { SYSTEM_GUARDRAILS } = require('../db/seed');
 const logger = require('../utils/logger');
+const { nullifyUserReferences } = require('./admin.controller');
 
 function generateTokens(userId) {
   const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
@@ -207,11 +208,8 @@ async function deleteAccount(req, res) {
     return res.status(400).json({ error: 'You are the sole administrator of an organization that has other members. Assign another administrator or remove all members first.' });
   }
 
-  // Revoke all sessions
-  await query('UPDATE refresh_tokens SET revoked=true WHERE user_id=$1', [req.userId]);
-  // Remove all memberships
-  await query('DELETE FROM memberships WHERE user_id=$1', [req.userId]);
-  // Hard-delete the user (cascades api_keys, refresh_tokens, etc.)
+  // Null out all non-cascading FK references, then hard-delete
+  await nullifyUserReferences(req.userId);
   await query('DELETE FROM users WHERE id=$1', [req.userId]);
 
   logger.info('User account deleted', { userId: req.userId });

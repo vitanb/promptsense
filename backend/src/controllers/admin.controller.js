@@ -3,6 +3,18 @@ const crypto = require('crypto');
 const { query } = require('../db/pool');
 const logger = require('../utils/logger');
 
+// Null out all non-cascading foreign key references before hard-deleting a user.
+// Tables with ON DELETE CASCADE handle themselves; these do not.
+async function nullifyUserReferences(userId) {
+  await query('UPDATE refresh_tokens     SET revoked=true        WHERE user_id=$1',   [userId]);
+  await query('UPDATE memberships        SET invited_by=NULL      WHERE invited_by=$1',[userId]);
+  await query('UPDATE policies           SET created_by=NULL      WHERE created_by=$1',[userId]);
+  await query('UPDATE prompt_templates   SET created_by=NULL      WHERE created_by=$1',[userId]);
+  await query('UPDATE api_keys           SET created_by=NULL      WHERE created_by=$1',[userId]);
+  await query('UPDATE gauntlet_runs      SET created_by=NULL      WHERE created_by=$1',[userId]);
+  // memberships rows where user_id=userId cascade-delete; invited_by rows are nulled above
+}
+
 // ── PLATFORM STATS ────────────────────────────────────────────────────────────
 async function getStats(req, res) {
   const [users, orgs, requests, revenue] = await Promise.all([
@@ -96,9 +108,7 @@ async function deleteUser(req, res) {
   const { rows: [user] } = await query('SELECT id, email, is_superuser FROM users WHERE id=$1 AND deleted_at IS NULL', [userId]);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  // Revoke tokens + remove memberships + hard-delete user
-  await query('UPDATE refresh_tokens SET revoked=true WHERE user_id=$1', [userId]);
-  await query('DELETE FROM memberships WHERE user_id=$1', [userId]);
+  await nullifyUserReferences(userId);
   await query('DELETE FROM users WHERE id=$1', [userId]);
 
   logger.warn('Super admin deleted user', { deletedBy: req.userId, deletedUser: userId, email: user.email });
@@ -336,4 +346,5 @@ async function deleteOrg(req, res) {
 module.exports = {
   getStats, listUsers, getUser, deleteUser, toggleSuperuser, resetUserPassword,
   listOrgs, getOrgDetail, createOrg, suspendOrg, activateOrg, updateOrgPlan, deleteOrg,
+  nullifyUserReferences,
 };
