@@ -157,7 +157,7 @@ export default function DashboardShell() {
         <nav style={{ flex:1, padding:'8px 0', overflowY:'auto' }}>
           {NAV.map((item, i) => {
             if (!item) return <div key={i} style={{ height:1, background:'var(--c-border)', margin:'6px 16px' }} />;
-            if (item.minRole && !can(item.minRole)) return null;
+            if (item.minRole && !can(item.minRole) && !isSuperuser) return null;
             if (item.superuserOnly && !isSuperuser) return null;
             // Hide "Get started" once onboarding progress is gone
             if (item.onboardingOnly && !progress) return null;

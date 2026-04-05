@@ -30,6 +30,26 @@ async function loadOrg(req, res, next) {
   const orgId = req.params.orgId || req.headers['x-org-id'];
   if (!orgId) return res.status(400).json({ error: 'Missing org ID' });
 
+  // Superusers get full org access regardless of membership
+  if (req.isSuperuser) {
+    const { rows: orgRows } = await query(
+      `SELECT o.id as org_id, o.name as org_name, o.slug, o.plan_id,
+              o.subscription_status, o.trial_ends_at, o.tenant_status, o.deleted_at,
+              o.primary_color, o.logo_url, o.custom_domain, o.timezone,
+              p.name as plan_name, p.requests_per_month,
+              p.members_limit, p.guardrails_limit, p.webhooks_limit
+       FROM organizations o JOIN plans p ON p.id = o.plan_id
+       WHERE o.id = $1`,
+      [orgId]
+    );
+    if (!orgRows[0]) return res.status(404).json({ error: 'Organization not found' });
+    if (orgRows[0].deleted_at) return res.status(403).json({ error: 'This organization has been deleted', code: 'ORG_DELETED' });
+    req.org = orgRows[0];
+    req.orgId = orgId;
+    req.role = 'administrator'; // superusers act as administrators in any org
+    return next();
+  }
+
   const { rows } = await query(
     `SELECT m.role, m.active, o.id as org_id, o.name as org_name, o.slug, o.plan_id,
             o.subscription_status, o.trial_ends_at, o.tenant_status, o.deleted_at,
@@ -47,8 +67,8 @@ async function loadOrg(req, res, next) {
   // Block access to deleted tenants
   if (rows[0].deleted_at) return res.status(403).json({ error: 'This organization has been deleted', code: 'ORG_DELETED' });
 
-  // Block access to suspended tenants (superusers bypass this check)
-  if (rows[0].tenant_status === 'suspended' && !req.isSuperuser) {
+  // Block access to suspended tenants
+  if (rows[0].tenant_status === 'suspended') {
     return res.status(402).json({
       error: 'This organization has been suspended. Please contact support.',
       code: 'ORG_SUSPENDED',
@@ -61,11 +81,12 @@ async function loadOrg(req, res, next) {
   next();
 }
 
-// Role-based permission gates
+// Role-based permission gates — superusers bypass all role checks
 const ROLE_HIERARCHY = { user: 0, developer: 1, administrator: 2 };
 
 function requireRole(minRole) {
   return (req, res, next) => {
+    if (req.isSuperuser) return next(); // superusers have full access everywhere
     const userLevel = ROLE_HIERARCHY[req.role] ?? -1;
     const minLevel = ROLE_HIERARCHY[minRole] ?? 99;
     if (userLevel < minLevel) return res.status(403).json({ error: `Requires ${minRole} role or higher` });
