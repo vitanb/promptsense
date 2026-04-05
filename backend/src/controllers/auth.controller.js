@@ -115,7 +115,7 @@ async function login(req, res) {
   await storeRefreshToken(user.id, refreshToken);
 
   res.json({
-    user: { id: user.id, email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified },
+    user: { id: user.id, email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser: user.is_superuser === true },
     orgs: memberships,
     accessToken,
     refreshToken,
