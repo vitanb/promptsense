@@ -17,6 +17,10 @@ const { stripeWebhook } = require('./controllers/billing.controller');
 
 const app = express();
 
+// Trust the first proxy (Render, AWS ALB, Cloudflare, etc.)
+// Required for express-rate-limit to correctly read client IPs from X-Forwarded-For
+app.set('trust proxy', 1);
+
 // ── Security ──────────────────────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({
