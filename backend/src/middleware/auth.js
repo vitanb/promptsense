@@ -3,6 +3,8 @@ const { query } = require('../db/pool');
 const logger = require('../utils/logger');
 
 // Verify JWT access token
+// User fields are embedded in the token payload (set at login) so we skip the DB query on every request.
+// The /auth/me endpoint is the only place that re-fetches from DB to get fresh data when needed.
 async function authenticate(req, res, next) {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
@@ -10,14 +12,17 @@ async function authenticate(req, res, next) {
   const token = header.slice(7);
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const { rows } = await query(
-      'SELECT id, email, full_name, avatar_url, email_verified, is_superuser FROM users WHERE id = $1',
-      [payload.userId]
-    );
-    if (!rows[0]) return res.status(401).json({ error: 'User not found' });
-    req.user = rows[0];
-    req.userId = rows[0].id;
-    req.isSuperuser = rows[0].is_superuser === true;
+    // Reconstruct req.user from the token payload — no DB round-trip needed
+    req.user = {
+      id: payload.userId,
+      email: payload.email,
+      full_name: payload.fullName,
+      avatar_url: payload.avatarUrl,
+      email_verified: payload.emailVerified,
+      is_superuser: payload.isSuperuser === true,
+    };
+    req.userId = payload.userId;
+    req.isSuperuser = payload.isSuperuser === true;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });

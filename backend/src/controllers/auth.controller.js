@@ -8,8 +8,9 @@ const { SYSTEM_GUARDRAILS } = require('../db/seed');
 const logger = require('../utils/logger');
 const { nullifyUserReferences } = require('./admin.controller');
 
-function generateTokens(userId) {
-  const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
+function generateTokens(userId, extra = {}) {
+  // Embed lightweight user fields in the token so authenticate() skips the DB on most requests
+  const accessToken = jwt.sign({ userId, ...extra }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
   const refreshToken = crypto.randomBytes(40).toString('hex');
   return { accessToken, refreshToken };
 }
@@ -28,7 +29,7 @@ async function register(req, res) {
   const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
   if (existing.rows[0]) return res.status(409).json({ error: 'Email already registered' });
 
-  const passwordHash = await bcrypt.hash(password, 12);
+  const passwordHash = await bcrypt.hash(password, 10);
   const verifyToken = crypto.randomBytes(32).toString('hex');
 
   // Create user
@@ -77,7 +78,7 @@ async function register(req, res) {
 
   await sendVerificationEmail(user, verifyToken);
 
-  const { accessToken, refreshToken } = generateTokens(user.id);
+  const { accessToken, refreshToken } = generateTokens(user.id, { email: user.email, fullName: user.full_name, emailVerified: false, isSuperuser: false });
   await storeRefreshToken(user.id, refreshToken);
 
   logger.info('New user registered', { userId: user.id, orgId: org.id });
@@ -101,18 +102,20 @@ async function login(req, res) {
   const valid = await bcrypt.compare(password, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
 
-  // Get org memberships
-  const { rows: memberships } = await query(
-    `SELECT m.role, m.org_id, o.name as org_name, o.slug, p.name as plan_name
-     FROM memberships m JOIN organizations o ON o.id=m.org_id JOIN plans p ON p.id=o.plan_id
-     WHERE m.user_id=$1 AND m.active=true`,
-    [user.id]
-  );
-
-  await query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]);
-
-  const { accessToken, refreshToken } = generateTokens(user.id);
-  await storeRefreshToken(user.id, refreshToken);
+  // Run all independent operations in parallel to cut login time
+  const tokenExtra = { email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser: user.is_superuser === true };
+  const tokens = generateTokens(user.id, tokenExtra);
+  const [{ rows: memberships }] = await Promise.all([
+    query(
+      `SELECT m.role, m.org_id, o.name as org_name, o.slug, p.name as plan_name
+       FROM memberships m JOIN organizations o ON o.id=m.org_id JOIN plans p ON p.id=o.plan_id
+       WHERE m.user_id=$1 AND m.active=true`,
+      [user.id]
+    ),
+    storeRefreshToken(user.id, tokens.refreshToken),
+    query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]),
+  ]);
+  const { accessToken, refreshToken } = tokens;
 
   res.json({
     user: { id: user.id, email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser: user.is_superuser === true },
@@ -177,7 +180,7 @@ async function resetPassword(req, res) {
   );
   if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
 
-  const hash = await bcrypt.hash(password, 12);
+  const hash = await bcrypt.hash(password, 10);
   await query('UPDATE users SET password_hash=$1, reset_token=null, reset_token_expires=null WHERE id=$2', [hash, user.id]);
   await query('UPDATE refresh_tokens SET revoked=true WHERE user_id=$1', [user.id]); // invalidate all sessions
 
