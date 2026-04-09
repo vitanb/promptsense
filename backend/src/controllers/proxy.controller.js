@@ -217,27 +217,37 @@ async function proxyPrompt(req, res) {
 
 // GET /orgs/:orgId/audit
 async function getAuditLog(req, res) {
-  const { page = 1, limit = 50, provider, passed, from, to } = req.query;
-  const offset = (page - 1) * limit;
-  const conditions = ['org_id=$1'];
-  const params = [req.orgId];
-  let idx = 2;
-  if (provider) { conditions.push(`provider=$${idx++}`); params.push(provider); }
-  if (passed !== undefined) { conditions.push(`passed=$${idx++}`); params.push(passed === 'true'); }
-  if (from) { conditions.push(`created_at>=$${idx++}`); params.push(from); }
-  if (to)   { conditions.push(`created_at<=$${idx++}`); params.push(to); }
+  try {
+    const { page = 1, provider, passed, from, to } = req.query;
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = (parseInt(page) - 1) * limit;
 
-  const where = conditions.join(' AND ');
-  const { rows } = await query(
-    `SELECT * FROM audit_events WHERE ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx+1}`,
-    [...params, limit, offset]
-  );
-  const { rows: [{ count }] } = await query(`SELECT COUNT(*) FROM audit_events WHERE ${where}`, params);
-  res.json({ events: rows, total: parseInt(count), page: parseInt(page), limit: parseInt(limit) });
+    const conditions = ['org_id=$1'];
+    const params = [req.orgId];
+    let idx = 2;
+    if (provider) { conditions.push(`provider=$${idx++}`); params.push(provider); }
+    if (passed !== undefined && passed !== '') { conditions.push(`passed=$${idx++}`); params.push(passed === 'true'); }
+    if (from) { conditions.push(`created_at>=$${idx++}`); params.push(from); }
+    if (to)   { conditions.push(`created_at<=$${idx++}`); params.push(to); }
+
+    const where = conditions.join(' AND ');
+    const [{ rows }, { rows: [{ count }] }] = await Promise.all([
+      query(
+        `SELECT * FROM audit_events WHERE ${where} ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`,
+        params
+      ),
+      query(`SELECT COUNT(*) FROM audit_events WHERE ${where}`, params),
+    ]);
+    res.json({ events: rows, total: parseInt(count), page: parseInt(page), limit });
+  } catch (err) {
+    logger.error('getAuditLog error', { error: err.message, orgId: req.orgId });
+    res.status(500).json({ error: 'Failed to load audit log' });
+  }
 }
 
 // GET /orgs/:orgId/analytics
 async function getAnalytics(req, res) {
+  try {
   const { days = 30 } = req.query;
   const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
@@ -293,26 +303,23 @@ async function getAnalytics(req, res) {
          COALESCE(u.id::text, 'api') AS user_id,
          COALESCE(u.full_name, u.email, 'API / System') AS name,
          COALESCE(u.email, '') AS email,
-         COALESCE(m.department, '') AS department,
          COUNT(*) AS total,
          COUNT(*) FILTER(WHERE NOT ae.passed) AS flagged,
          SUM(ae.tokens_used) AS tokens,
          ROUND((SUM(ae.tokens_used) * 0.00001)::numeric, 4) AS est_cost_usd
        FROM audit_events ae
        LEFT JOIN users u ON u.id = ae.user_id
-       LEFT JOIN memberships m ON m.user_id = ae.user_id AND m.org_id = ae.org_id
        WHERE ae.org_id = $1 AND ae.created_at >= $2
-       GROUP BY u.id, u.full_name, u.email, m.department
+       GROUP BY u.id, u.full_name, u.email
        ORDER BY total DESC
        LIMIT 25`,
       [req.orgId, from]
     ),
 
-    // Per-department breakdown
-    // Rows with no department (API keys or untagged users) grouped as "Unassigned"
+    // Per-role breakdown (replaces department — memberships has no department column)
     query(
       `SELECT
-         COALESCE(NULLIF(m.department, ''), 'Unassigned') AS department,
+         COALESCE(m.role, 'api') AS department,
          COUNT(*) AS total,
          COUNT(*) FILTER(WHERE NOT ae.passed) AS flagged,
          SUM(ae.tokens_used) AS tokens,
@@ -320,7 +327,7 @@ async function getAnalytics(req, res) {
        FROM audit_events ae
        LEFT JOIN memberships m ON m.user_id = ae.user_id AND m.org_id = ae.org_id
        WHERE ae.org_id = $1 AND ae.created_at >= $2
-       GROUP BY COALESCE(NULLIF(m.department, ''), 'Unassigned')
+       GROUP BY COALESCE(m.role, 'api')
        ORDER BY total DESC`,
       [req.orgId, from]
     ),
@@ -335,6 +342,10 @@ async function getAnalytics(req, res) {
     byUser:        byUser.rows,
     byDepartment:  byDepartment.rows,
   });
+  } catch (err) {
+    logger.error('getAnalytics error', { error: err.message, orgId: req.orgId });
+    res.status(500).json({ error: 'Failed to load analytics' });
+  }
 }
 
 module.exports = { proxyPrompt, getAuditLog, getAnalytics };

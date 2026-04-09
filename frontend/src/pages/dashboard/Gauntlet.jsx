@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { gauntletApi, orgApi } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useOrg } from '../../context/OrgContext';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const SEV_COLOR = {
@@ -520,7 +521,8 @@ function RunsList({ runs, onSelect, onNew, canCreate }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function Gauntlet() {
-  const { currentOrg, user } = useAuth();
+  const { user } = useAuth();
+  const { currentOrg } = useOrg();
   const orgId = currentOrg?.org_id;
 
   const [view, setView] = useState('list'); // list | detail
@@ -535,7 +537,7 @@ export default function Gauntlet() {
   const canCreate = ['developer', 'administrator'].includes(currentOrg?.role);
 
   const load = useCallback(async () => {
-    if (!orgId) return;
+    if (!orgId) { setLoading(false); return; }
     try {
       const [{ runs: r }, cats, provs] = await Promise.all([
         gauntletApi.runs(orgId),
