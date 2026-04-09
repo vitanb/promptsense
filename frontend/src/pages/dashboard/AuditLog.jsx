@@ -13,18 +13,23 @@ export function AuditLog() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [filters, setFilters] = useState({ provider:'', passed:'' });
 
   const load = async () => {
-    if (!orgId) return;
+    if (!orgId) { setLoading(false); return; }
     setLoading(true);
+    setLoadError('');
     const params = { page, limit:25 };
     if (filters.provider) params.provider = filters.provider;
     if (filters.passed !== '') params.passed = filters.passed;
     try {
       const data = await promptApi.audit(orgId, params);
       setEvents(data.events || []); setTotal(data.total || 0);
-    } catch (e) { setEvents([]); }
+    } catch (e) {
+      setLoadError(e.response?.data?.error || 'Failed to load audit log. Check that your backend is deployed.');
+      setEvents([]);
+    }
     finally { setLoading(false); }
   };
 
@@ -50,7 +55,12 @@ export function AuditLog() {
         </select>
       </div>
 
-      {loading ? <div style={{ display:'flex', justifyContent:'center', padding:'3rem' }}><Spinner /></div> : (
+      {loading ? <div style={{ display:'flex', justifyContent:'center', padding:'3rem' }}><Spinner /></div> : loadError ? (
+        <div style={{ padding:'2rem', textAlign:'center' }}>
+          <div style={{ color:'var(--c-red)', fontSize:14, marginBottom:8 }}>⚠ {loadError}</div>
+          <button onClick={load} style={{ fontSize:12, padding:'6px 14px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)', cursor:'pointer' }}>Retry</button>
+        </div>
+      ) : (
         <>
           <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
             {events.map(e => (

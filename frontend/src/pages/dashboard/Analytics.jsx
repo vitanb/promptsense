@@ -199,19 +199,34 @@ export default function Analytics() {
   const [data, setData] = useState(null);
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [tab, setTab] = useState('overview'); // 'overview' | 'users' | 'departments'
 
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) { setLoading(false); return; }
     setLoading(true);
-    promptApi.analytics(orgId, { days }).then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+    setError('');
+    promptApi.analytics(orgId, { days })
+      .then(d => { setData(d); })
+      .catch(err => { setError(err.response?.data?.error || 'Failed to load analytics data. Check that your backend is deployed.'); setData(null); })
+      .finally(() => setLoading(false));
   }, [orgId, days]);
 
   if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:'4rem' }}><Spinner size={32} /></div>;
-  if (!data) return <div style={{ color:'var(--c-text2)', padding:'2rem', textAlign:'center' }}>Could not load analytics data.</div>;
+  if (error) return (
+    <div style={{ padding:'2rem', textAlign:'center' }}>
+      <div style={{ color:'var(--c-red)', fontSize:14, marginBottom:8 }}>⚠ {error}</div>
+      <button onClick={() => { setLoading(true); setError(''); promptApi.analytics(orgId, { days }).then(setData).catch(err => setError(err.response?.data?.error || 'Failed to load analytics data.')).finally(() => setLoading(false)); }}
+        style={{ fontSize:12, padding:'6px 14px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)', cursor:'pointer' }}>
+        Retry
+      </button>
+    </div>
+  );
+  if (!data) return <div style={{ color:'var(--c-text2)', padding:'2rem', textAlign:'center' }}>No analytics data available.</div>;
 
-  const { summary, byProvider, byHour, flagSummary, currentPeriod, byUser, byDepartment } = data;
-  const passRate = summary.total > 0 ? Math.round((summary.passed / summary.total) * 100) : 100;
+  const { summary = {}, byProvider = [], byHour = [], flagSummary = [], currentPeriod = {}, byUser = [], byDepartment = [] } = data;
+
+  const passRate = summary.total > 0 ? Math.round((Number(summary.passed) / Number(summary.total)) * 100) : 100;
 
   const DaySelect = (
     <select value={days} onChange={e => setDays(Number(e.target.value))}
