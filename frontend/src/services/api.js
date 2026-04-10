@@ -2,12 +2,15 @@ import axios from 'axios';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api', withCredentials: true });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Attach access token to every request
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('ps_access_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   const orgId = localStorage.getItem('ps_org_id');
-  if (orgId) config.headers['X-Org-Id'] = orgId;
+  // Only attach org header if it's a real UUID — prevents "undefined"/"null" strings leaking in
+  if (orgId && UUID_RE.test(orgId)) config.headers['X-Org-Id'] = orgId;
   return config;
 });
 

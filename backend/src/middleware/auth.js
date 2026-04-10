@@ -30,10 +30,13 @@ async function authenticate(req, res, next) {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Load org membership + role into req.membership
 async function loadOrg(req, res, next) {
   const orgId = req.params.orgId || req.headers['x-org-id'];
   if (!orgId) return res.status(400).json({ error: 'Missing org ID' });
+  if (!UUID_RE.test(orgId)) return res.status(400).json({ error: 'Invalid org ID — please log out and back in' });
 
   // Superusers get full org access regardless of membership
   if (req.isSuperuser) {

@@ -41,6 +41,7 @@ export default function Integrations() {
   };
 
   const save = async () => {
+    if (!orgId) { setError('No organization selected — please refresh the page.'); return; }
     setLoading(true); setError('');
     try {
       const conn = await orgApi.upsertProvider(orgId, draft);
