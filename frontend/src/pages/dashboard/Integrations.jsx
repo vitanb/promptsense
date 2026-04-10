@@ -54,12 +54,24 @@ export default function Integrations() {
     finally { setLoading(false); }
   };
 
-  // Wait for auth + org to be ready before showing any UI that can fire API calls
-  if (authLoading || !orgId) {
+  // Show spinner only while auth is actively loading
+  if (authLoading) {
     return (
       <div>
         <PageHeader title="Integrations" description="Connect LLM providers and configure your downstream system." />
         <div style={{ display:'flex', justifyContent:'center', padding:'4rem' }}><Spinner size={28} /></div>
+      </div>
+    );
+  }
+
+  // Auth finished but no org resolved — surface a clear message instead of a dead spinner
+  if (!orgId) {
+    return (
+      <div>
+        <PageHeader title="Integrations" description="Connect LLM providers and configure your downstream system." />
+        <div style={{ padding:'2rem', textAlign:'center', color:'var(--c-text2)', fontSize:13 }}>
+          No organization found. Please <button onClick={() => window.location.reload()} style={{ color:'var(--c-purple)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', fontSize:13 }}>refresh the page</button> or log out and back in.
+        </div>
       </div>
     );
   }
