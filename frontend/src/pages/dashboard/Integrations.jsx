@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useOrg } from '../../context/OrgContext';
+import { useAuth } from '../../context/AuthContext';
 import { orgApi, configApi } from '../../services/api';
-import { Card, Btn, Input, Select, Toggle, Alert, PageHeader } from '../../components/UI';
+import { Card, Btn, Input, Select, Toggle, Alert, PageHeader, Spinner } from '../../components/UI';
 
 const PROVIDERS = [
   { id:'anthropic', label:'Anthropic Claude', color:'#D85A30', models:['claude-sonnet-4-20250514','claude-opus-4-5','claude-haiku-4-5-20251001'], defaultUrl:'https://api.anthropic.com/v1/messages' },
@@ -14,6 +15,7 @@ const PROVIDERS = [
 ];
 
 export default function Integrations() {
+  const { loading: authLoading } = useAuth();
   const { currentOrg, can } = useOrg();
   const orgId = currentOrg?.org_id;
   const [connections, setConnections] = useState({});
@@ -51,6 +53,16 @@ export default function Integrations() {
     } catch (err) { setError(err.response?.data?.error || 'Failed to save'); }
     finally { setLoading(false); }
   };
+
+  // Wait for auth + org to be ready before showing any UI that can fire API calls
+  if (authLoading || !orgId) {
+    return (
+      <div>
+        <PageHeader title="Integrations" description="Connect LLM providers and configure your downstream system." />
+        <div style={{ display:'flex', justifyContent:'center', padding:'4rem' }}><Spinner size={28} /></div>
+      </div>
+    );
+  }
 
   if (editing) {
     const preset = PROVIDERS.find(p => p.id === editing);
