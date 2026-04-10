@@ -231,18 +231,24 @@ async function logout(req, res) {
 
 // GET /auth/me
 async function me(req, res) {
-  const { rows: memberships } = await query(
-    `SELECT m.role, m.org_id, o.name as org_name, o.slug, o.subscription_status, p.name as plan_name
-     FROM memberships m
-     JOIN organizations o ON o.id=m.org_id
-     JOIN plans p ON p.id=o.plan_id
-     WHERE m.user_id=$1 AND m.active=true AND o.deleted_at IS NULL`,
-    [req.userId]
-  );
-  res.json({
-    user: { ...req.user, isSuperuser: req.user.is_superuser === true },
-    orgs: memberships
-  });
+  try {
+    const { rows: memberships } = await query(
+      `SELECT m.role, m.org_id, o.name as org_name, o.slug,
+              o.subscription_status, COALESCE(p.name, 'starter') as plan_name
+       FROM memberships m
+       JOIN organizations o ON o.id=m.org_id
+       LEFT JOIN plans p ON p.id=o.plan_id
+       WHERE m.user_id=$1 AND m.active=true AND o.deleted_at IS NULL`,
+      [req.userId]
+    );
+    res.json({
+      user: { ...req.user, isSuperuser: req.user.is_superuser === true },
+      orgs: memberships
+    });
+  } catch (err) {
+    logger.error('me endpoint error', { error: err.message, userId: req.userId });
+    res.status(500).json({ error: 'Failed to load session' });
+  }
 }
 
 module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me, deleteAccount };

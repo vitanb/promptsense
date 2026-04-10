@@ -12,14 +12,19 @@ export function AuthProvider({ children }) {
     localStorage.setItem('ps_access_token',  data.accessToken);
     localStorage.setItem('ps_refresh_token', data.refreshToken);
     setUser(data.user);
-    setOrgs(data.orgs || []);
-    if (data.orgs?.[0]) localStorage.setItem('ps_org_id', data.orgs[0].org_id);
+    const orgs = data.orgs || [];
+    setOrgs(orgs);
+    if (orgs.length > 0) {
+      localStorage.setItem('ps_org_id', orgs[0].org_id);
+      localStorage.setItem('ps_orgs', JSON.stringify(orgs));
+    }
   }, []);
 
   const clearSession = useCallback(() => {
     localStorage.removeItem('ps_access_token');
     localStorage.removeItem('ps_refresh_token');
     localStorage.removeItem('ps_org_id');
+    localStorage.removeItem('ps_orgs');
     setUser(null); setOrgs([]);
   }, []);
 
@@ -27,8 +32,22 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('ps_access_token');
     if (!token) { setLoading(false); return; }
+
+    // Preload cached orgs from localStorage so the UI has something while /me loads
+    try {
+      const cached = localStorage.getItem('ps_orgs');
+      if (cached) setOrgs(JSON.parse(cached));
+    } catch (_) {}
+
     authApi.me()
-      .then(data => { setUser(data.user); setOrgs(data.orgs || []); })
+      .then(data => {
+        setUser(data.user);
+        const freshOrgs = data.orgs || [];
+        setOrgs(freshOrgs);
+        if (freshOrgs.length > 0) {
+          localStorage.setItem('ps_orgs', JSON.stringify(freshOrgs));
+        }
+      })
       .catch(() => clearSession())
       .finally(() => setLoading(false));
   }, [clearSession]);
