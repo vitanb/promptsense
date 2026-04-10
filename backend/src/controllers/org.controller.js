@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { query } = require('../db/pool');
 const { encrypt, decrypt } = require('../utils/encryption');
 const { sendInviteEmail } = require('../utils/email');
+const logger = require('../utils/logger');
 
 // ── MEMBERS ──────────────────────────────────────────────────────────────────
 async function listMembers(req, res) {
@@ -132,30 +133,37 @@ async function listProviders(req, res) {
 }
 
 async function upsertProvider(req, res) {
-  const { provider, label, apiKey, endpointUrl, model, maxTokens, systemPrompt, enabled } = req.body;
-  const encryptedKey = apiKey ? encrypt(apiKey) : undefined;
+  try {
+    const { provider, label, apiKey, endpointUrl, model, maxTokens, systemPrompt, enabled } = req.body;
+    if (!provider) return res.status(400).json({ error: 'provider is required' });
 
-  const { rows: [existing] } = await query('SELECT id FROM provider_connections WHERE org_id=$1 AND provider=$2', [req.orgId, provider]);
+    const encryptedKey = apiKey ? encrypt(apiKey) : undefined;
 
-  if (existing) {
-    const sets = ['label=COALESCE($1,label)', 'endpoint_url=COALESCE($2,endpoint_url)', 'model=COALESCE($3,model)',
-                  'max_tokens=COALESCE($4,max_tokens)', 'system_prompt=COALESCE($5,system_prompt)', 'enabled=COALESCE($6,enabled)'];
-    const params = [label, endpointUrl, model, maxTokens, systemPrompt, enabled];
-    if (encryptedKey) { sets.push(`encrypted_key=$${params.length+1}`); params.push(encryptedKey); }
-    params.push(existing.id, req.orgId);
+    const { rows: [existing] } = await query('SELECT id FROM provider_connections WHERE org_id=$1 AND provider=$2', [req.orgId, provider]);
+
+    if (existing) {
+      const sets = ['label=COALESCE($1,label)', 'endpoint_url=COALESCE($2,endpoint_url)', 'model=COALESCE($3,model)',
+                    'max_tokens=COALESCE($4,max_tokens)', 'system_prompt=COALESCE($5,system_prompt)', 'enabled=COALESCE($6,enabled)'];
+      const params = [label||null, endpointUrl||null, model||null, maxTokens||null, systemPrompt||null, enabled??null];
+      if (encryptedKey) { sets.push(`encrypted_key=$${params.length+1}`); params.push(encryptedKey); }
+      params.push(existing.id, req.orgId);
+      const { rows: [conn] } = await query(
+        `UPDATE provider_connections SET ${sets.join(',')} WHERE id=$${params.length-1} AND org_id=$${params.length} RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
+        params
+      );
+      return res.json(conn);
+    }
+
     const { rows: [conn] } = await query(
-      `UPDATE provider_connections SET ${sets.join(',')} WHERE id=$${params.length-1} AND org_id=$${params.length} RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
-      params
+      `INSERT INTO provider_connections (org_id,provider,label,encrypted_key,endpoint_url,model,max_tokens,system_prompt,enabled)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
+      [req.orgId, provider, label||provider, encryptedKey||null, endpointUrl||null, model||null, maxTokens||1000, systemPrompt||'You are a helpful assistant.', enabled??true]
     );
-    return res.json(conn);
+    res.status(201).json(conn);
+  } catch (err) {
+    logger.error('upsertProvider error', { error: err.message, orgId: req.orgId });
+    res.status(500).json({ error: 'Failed to save provider: ' + err.message });
   }
-
-  const { rows: [conn] } = await query(
-    `INSERT INTO provider_connections (org_id,provider,label,encrypted_key,endpoint_url,model,max_tokens,system_prompt,enabled)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
-    [req.orgId, provider, label||provider, encryptedKey||null, endpointUrl||null, model||null, maxTokens||1000, systemPrompt||'You are a helpful assistant.', enabled??true]
-  );
-  res.status(201).json(conn);
 }
 
 async function deleteProvider(req, res) {

@@ -1,7 +1,9 @@
 const crypto = require('crypto');
 
 const ALGORITHM = 'aes-256-gcm';
-const KEY = Buffer.from(process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex').slice(0, 32), 'utf8');
+// Always derive exactly 32 bytes via SHA-256 so any ENCRYPTION_KEY length works
+const rawKey = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
+const KEY = crypto.createHash('sha256').update(rawKey).digest();
 
 function encrypt(text) {
   if (!text) return null;
