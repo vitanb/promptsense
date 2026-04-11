@@ -3,14 +3,35 @@ const { query } = require('../db/pool');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 
-// Run regex guardrails against text
-async function runGuardrails(orgId, text, direction) {
+// ── Country detection ─────────────────────────────────────────────────────────
+// Priority: Cloudflare header → geoip-lite → null (apply all guardrails)
+let geoip = null;
+try { geoip = require('geoip-lite'); } catch (_) {}
+
+function detectCountry(req) {
+  const cf = req.headers['cf-ipcountry'];
+  if (cf && cf !== 'XX') return cf.toUpperCase();
+  if (geoip) {
+    const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+    const geo = geoip.lookup(ip);
+    if (geo?.country) return geo.country.toUpperCase();
+  }
+  return null; // unknown — apply all guardrails to be safe
+}
+
+// ── Guardrail evaluation ──────────────────────────────────────────────────────
+async function runGuardrails(orgId, text, direction, countryCode) {
   const { rows } = await query(
     "SELECT * FROM guardrails WHERE org_id=$1 AND enabled=true AND (type=$2 OR type='both') ORDER BY sort_order",
     [orgId, direction]
   );
   const flags = [];
   for (const g of rows) {
+    // Skip if the guardrail is restricted to specific countries and caller's
+    // country is known but not in the list. Unknown country → apply all.
+    if (g.countries && g.countries.length > 0 && countryCode) {
+      if (!g.countries.includes(countryCode)) continue;
+    }
     if (!g.pattern) {
       if (g.id === 'length' && text.length > 3000) flags.push(g);
       continue;
@@ -70,13 +91,14 @@ async function proxyPrompt(req, res) {
   if (!prompt?.trim()) return res.status(400).json({ error: 'prompt is required' });
 
   const t0 = Date.now();
+  const countryCode = detectCountry(req);
 
   // Check quota
   const withinQuota = await checkQuota(req.orgId, req.org.requests_per_month);
   if (!withinQuota) return res.status(429).json({ error: 'Monthly request quota exceeded. Upgrade your plan.' });
 
   // ── Step 1: Input guardrails ────────────────────────────────────────────────
-  const inputFlags = await runGuardrails(req.orgId, prompt, 'input');
+  const inputFlags = await runGuardrails(req.orgId, prompt, 'input', countryCode);
   const blocked = inputFlags.filter(g => g.action === 'block');
 
   if (blocked.length > 0) {
@@ -179,7 +201,7 @@ async function proxyPrompt(req, res) {
   }
 
   // ── Step 5: Output guardrails ──────────────────────────────────────────────
-  const outputFlags = await runGuardrails(req.orgId, raw, 'output');
+  const outputFlags = await runGuardrails(req.orgId, raw, 'output', countryCode);
   const outBlocked = outputFlags.filter(g => g.action === 'block');
   const finalOutput = outBlocked.length > 0
     ? `[Output blocked: ${outBlocked.map(g => g.name).join(', ')}]`

@@ -13,29 +13,33 @@ async function listGuardrails(req, res) {
 
 async function updateGuardrail(req, res) {
   const { id } = req.params;
-  const { name, description, type, severity, action, pattern, color, enabled } = req.body;
+  const { name, description, type, severity, action, pattern, color, enabled, countries } = req.body;
   const { rows: [g] } = await query(
     `UPDATE guardrails SET name=COALESCE($1,name), description=COALESCE($2,description),
      type=COALESCE($3,type), severity=COALESCE($4,severity), action=COALESCE($5,action),
-     pattern=COALESCE($6,pattern), color=COALESCE($7,color), enabled=COALESCE($8,enabled)
-     WHERE id=$9 AND org_id=$10 RETURNING *`,
-    [name, description, type, severity, action, pattern, color, enabled, id, req.orgId]
+     pattern=COALESCE($6,pattern), color=COALESCE($7,color), enabled=COALESCE($8,enabled),
+     countries=COALESCE($9,countries)
+     WHERE id=$10 AND org_id=$11 RETURNING *`,
+    [name, description, type, severity, action, pattern, color, enabled,
+     countries !== undefined ? countries : null,
+     id, req.orgId]
   );
   if (!g) return res.status(404).json({ error: 'Guardrail not found' });
   res.json(g);
 }
 
 async function createGuardrail(req, res) {
-  const { name, description, type, severity, action, pattern, color } = req.body;
+  const { name, description, type, severity, action, pattern, color, countries } = req.body;
   // Check plan limit
   const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM guardrails WHERE org_id=$1', [req.orgId]);
   if (req.org.guardrails_limit > 0 && parseInt(count) >= req.org.guardrails_limit) {
     return res.status(402).json({ error: 'Guardrail limit reached for your plan. Upgrade to add more.' });
   }
   const { rows: [g] } = await query(
-    `INSERT INTO guardrails (org_id,name,description,type,severity,action,pattern,color,enabled)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *`,
-    [req.orgId, name, description||'', type||'both', severity||'medium', action||'block', pattern||'', color||'#7F77DD']
+    `INSERT INTO guardrails (org_id,name,description,type,severity,action,pattern,color,enabled,countries)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true,$9) RETURNING *`,
+    [req.orgId, name, description||'', type||'both', severity||'medium', action||'block',
+     pattern||'', color||'#7F77DD', countries||[]]
   );
   res.status(201).json(g);
 }

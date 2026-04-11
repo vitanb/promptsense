@@ -5,6 +5,170 @@ import { Card, Btn, Input, Select, Toggle, Alert, Badge, PageHeader, Modal, Empt
 
 const SEVERITY_COLORS = { critical:'#E24B4A', high:'#D85A30', medium:'#BA7517', low:'#639922' };
 
+// ── Country data ───────────────────────────────────────────────────────────────
+const COUNTRIES = [
+  { code:'US', name:'United States' }, { code:'GB', name:'United Kingdom' },
+  { code:'DE', name:'Germany' },       { code:'FR', name:'France' },
+  { code:'AU', name:'Australia' },     { code:'CA', name:'Canada' },
+  { code:'IN', name:'India' },         { code:'JP', name:'Japan' },
+  { code:'CN', name:'China' },         { code:'BR', name:'Brazil' },
+  { code:'MX', name:'Mexico' },        { code:'SG', name:'Singapore' },
+  { code:'AE', name:'UAE' },           { code:'ZA', name:'South Africa' },
+  { code:'NG', name:'Nigeria' },       { code:'KR', name:'South Korea' },
+  { code:'IT', name:'Italy' },         { code:'ES', name:'Spain' },
+  { code:'NL', name:'Netherlands' },   { code:'SE', name:'Sweden' },
+  { code:'NO', name:'Norway' },        { code:'CH', name:'Switzerland' },
+  { code:'PL', name:'Poland' },        { code:'AR', name:'Argentina' },
+  { code:'SA', name:'Saudi Arabia' },  { code:'TR', name:'Turkey' },
+  { code:'ID', name:'Indonesia' },     { code:'MY', name:'Malaysia' },
+  { code:'PH', name:'Philippines' },   { code:'TH', name:'Thailand' },
+  { code:'NZ', name:'New Zealand' },   { code:'IE', name:'Ireland' },
+  { code:'PT', name:'Portugal' },      { code:'RU', name:'Russia' },
+  { code:'UA', name:'Ukraine' },       { code:'EG', name:'Egypt' },
+  { code:'PK', name:'Pakistan' },      { code:'BD', name:'Bangladesh' },
+  { code:'VN', name:'Vietnam' },       { code:'IL', name:'Israel' },
+];
+
+// ── Country-specific guardrail template library ────────────────────────────────
+const COUNTRY_GUARDRAIL_TEMPLATES = [
+  // ── United States ──
+  { name:'US — SSN detection', countries:['US'], type:'both', severity:'critical', action:'block', color:'#378ADD',
+    description:'Block US Social Security Numbers (SSN) in prompts and responses.',
+    pattern:String.raw`\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b` },
+  { name:'US — HIPAA health info', countries:['US'], type:'both', severity:'critical', action:'block', color:'#378ADD',
+    description:'Detect protected health information (PHI) patterns for HIPAA compliance.',
+    pattern:String.raw`(diagnosis|prescription|medical record|patient id|dob|date of birth|insurance id|health plan)` },
+  { name:'US — CCPA personal data', countries:['US'], type:'both', severity:'high', action:'warn', color:'#378ADD',
+    description:'Warn on California Consumer Privacy Act sensitive data categories.',
+    pattern:String.raw`(biometric|geolocation|browsing history|purchase history|inferences drawn)` },
+
+  // ── European Union (GDPR) ──
+  { name:'EU — GDPR special categories', countries:['DE','FR','IT','ES','NL','SE','NO','PL','IE','PT','BE','AT','FI','DK','CZ','RO','HU','SK','BG','HR','LT','LV','EE','SI','CY','LU','MT'], type:'both', severity:'critical', action:'block', color:'#1D9E75',
+    description:'Block GDPR Article 9 special category data: health, race, religion, biometrics, political views.',
+    pattern:String.raw`(racial origin|ethnic origin|political opinion|religious belief|trade union|genetic data|biometric|health data|sexual orientation|criminal conviction)` },
+  { name:'EU — GDPR data transfer warning', countries:['DE','FR','IT','ES','NL','SE','NO','PL','IE','PT'], type:'both', severity:'medium', action:'warn', color:'#1D9E75',
+    description:'Flag potential cross-border personal data transfer indicators.',
+    pattern:String.raw`(transfer.*personal data|send.*personal data|share.*with third party|export.*user data)` },
+
+  // ── United Kingdom ──
+  { name:'UK — National Insurance Number', countries:['GB'], type:'both', severity:'critical', action:'block', color:'#D85A30',
+    description:'Block UK National Insurance Numbers (NINO).',
+    pattern:String.raw`\b[A-CEGHJ-PR-TW-Z]{2}\d{6}[A-D]\b` },
+  { name:'UK — UK phone numbers', countries:['GB'], type:'both', severity:'high', action:'warn', color:'#D85A30',
+    description:'Detect UK phone numbers in traffic.',
+    pattern:String.raw`(\+44\s?|0)[0-9]{10,11}\b` },
+
+  // ── Germany ──
+  { name:'DE — Steuer-ID (Tax ID)', countries:['DE'], type:'both', severity:'critical', action:'block', color:'#BA7517',
+    description:'Block German tax identification numbers (Steueridentifikationsnummer).',
+    pattern:String.raw`\b[1-9]\d{10}\b` },
+  { name:'DE — German-specific content restrictions', countries:['DE'], type:'both', severity:'critical', action:'block', color:'#BA7517',
+    description:'Block content that violates German NetzDG / Volksverhetzung laws.',
+    pattern:String.raw`(volksverhetzung|nationalsozialismus|hakenkreuz|nazi|holocaust.*leugnung)` },
+
+  // ── Australia ──
+  { name:'AU — Tax File Number (TFN)', countries:['AU'], type:'both', severity:'critical', action:'block', color:'#7F77DD',
+    description:'Block Australian Tax File Numbers.',
+    pattern:String.raw`\b\d{3}[\s-]?\d{3}[\s-]?\d{3}\b` },
+  { name:'AU — Medicare number', countries:['AU'], type:'both', severity:'critical', action:'block', color:'#7F77DD',
+    description:'Detect Australian Medicare card numbers.',
+    pattern:String.raw`\b[2-6]\d{9}\b` },
+
+  // ── Canada ──
+  { name:'CA — SIN (Social Insurance Number)', countries:['CA'], type:'both', severity:'critical', action:'block', color:'#E24B4A',
+    description:'Block Canadian Social Insurance Numbers (SIN).',
+    pattern:String.raw`\b\d{3}[-\s]?\d{3}[-\s]?\d{3}\b` },
+  { name:'CA — PIPEDA personal data', countries:['CA'], type:'both', severity:'high', action:'warn', color:'#E24B4A',
+    description:'Flag personal data categories covered by Canadian PIPEDA.',
+    pattern:String.raw`(social insurance|SIN number|health card|provincial health|driver.s licence number)` },
+
+  // ── India ──
+  { name:'IN — Aadhaar number', countries:['IN'], type:'both', severity:'critical', action:'block', color:'#D85A30',
+    description:'Block Indian Aadhaar (UID) numbers.',
+    pattern:String.raw`\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b` },
+  { name:'IN — PAN card', countries:['IN'], type:'both', severity:'critical', action:'block', color:'#D85A30',
+    description:'Block Indian Permanent Account Numbers (PAN).',
+    pattern:String.raw`\b[A-Z]{5}\d{4}[A-Z]\b` },
+  { name:'IN — IT Act sensitive content', countries:['IN'], type:'both', severity:'high', action:'block', color:'#D85A30',
+    description:'Block content violating India IT Act sections on obscenity and incitement.',
+    pattern:String.raw`(section 66a|obscene material|offensive message|lascivious)` },
+
+  // ── Singapore ──
+  { name:'SG — NRIC / FIN number', countries:['SG'], type:'both', severity:'critical', action:'block', color:'#4285F4',
+    description:'Block Singapore National Registration Identity Card (NRIC) and FIN numbers.',
+    pattern:String.raw`\b[STFGM]\d{7}[A-Z]\b` },
+
+  // ── Saudi Arabia / UAE ──
+  { name:'AE/SA — National ID', countries:['AE','SA'], type:'both', severity:'critical', action:'block', color:'#1D9E75',
+    description:'Block GCC national identity card numbers.',
+    pattern:String.raw`\b784[-\s]?\d{4}[-\s]?\d{7}[-\s]?\d\b` },
+
+  // ── Japan ──
+  { name:'JP — My Number (個人番号)', countries:['JP'], type:'both', severity:'critical', action:'block', color:'#E24B4A',
+    description:'Block Japanese My Number (Individual Number) identifiers.',
+    pattern:String.raw`\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b` },
+
+  // ── Brazil ──
+  { name:'BR — CPF number', countries:['BR'], type:'both', severity:'critical', action:'block', color:'#1D9E75',
+    description:'Block Brazilian CPF (Cadastro de Pessoas Físicas) numbers.',
+    pattern:String.raw`\b\d{3}\.?\d{3}\.?\d{3}[-.]?\d{2}\b` },
+  { name:'BR — LGPD sensitive data', countries:['BR'], type:'both', severity:'high', action:'warn', color:'#1D9E75',
+    description:'Flag data categories sensitive under Brazilian LGPD law.',
+    pattern:String.raw`(origem racial|convicção religiosa|opinião política|dado genético|dado biométrico|dado de saúde)` },
+
+  // ── South Korea ──
+  { name:'KR — Resident Registration Number', countries:['KR'], type:'both', severity:'critical', action:'block', color:'#BA7517',
+    description:'Block Korean Resident Registration Numbers (주민등록번호).',
+    pattern:String.raw`\b\d{6}[-\s]?\d{7}\b` },
+
+  // ── China ──
+  { name:'CN — Citizen ID (居民身份证)', countries:['CN'], type:'both', severity:'critical', action:'block', color:'#E24B4A',
+    description:'Block Chinese national ID card numbers (18-digit format).',
+    pattern:String.raw`\b[1-9]\d{5}(18|19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dXx]\b` },
+];
+
+// ── Country multi-select component ────────────────────────────────────────────
+function CountrySelect({ selected = [], onChange }) {
+  const [search, setSearch] = useState('');
+  const filtered = COUNTRIES.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.code.toLowerCase().includes(search.toLowerCase())
+  );
+  const toggle = (code) => {
+    onChange(selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code]);
+  };
+  return (
+    <div>
+      <label style={{ fontSize:11, color:'var(--c-text2)', fontWeight:500, textTransform:'uppercase', letterSpacing:'0.04em', display:'block', marginBottom:6 }}>
+        Apply to countries
+        <span style={{ marginLeft:6, fontWeight:400, textTransform:'none', fontSize:11, color:'var(--c-text3)' }}>
+          {selected.length === 0 ? '(all countries — global)' : `${selected.length} selected`}
+        </span>
+      </label>
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search countries…"
+        style={{ width:'100%', padding:'6px 10px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)', fontSize:12, marginBottom:6 }} />
+      <div style={{ maxHeight:140, overflowY:'auto', display:'flex', flexWrap:'wrap', gap:5, padding:'4px 0' }}>
+        {filtered.map(c => {
+          const sel = selected.includes(c.code);
+          return (
+            <button key={c.code} onClick={() => toggle(c.code)}
+              style={{ fontSize:11, padding:'3px 9px', borderRadius:4, cursor:'pointer', border:'0.5px solid var(--c-border2)',
+                background: sel ? 'var(--c-purple)' : 'var(--c-bg2)',
+                color: sel ? '#fff' : 'var(--c-text2)' }}>
+              {c.code} {c.name}
+            </button>
+          );
+        })}
+      </div>
+      {selected.length > 0 && (
+        <button onClick={() => onChange([])} style={{ marginTop:6, fontSize:11, color:'var(--c-text3)', background:'none', border:'none', cursor:'pointer', textDecoration:'underline' }}>
+          Clear — make global
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ── GUARDRAILS ────────────────────────────────────────────────────────────────
 export function Guardrails() {
   const { currentOrg, can } = useOrg();
@@ -15,6 +179,8 @@ export function Guardrails() {
   const [error, setError] = useState('');
   const [testInput, setTestInput] = useState('');
   const [testResult, setTestResult] = useState(null);
+  const [tab, setTab] = useState('custom'); // 'custom' | 'country'
+  const [countryFilter, setCountryFilter] = useState('');
 
   useEffect(() => { if (orgId) configApi.guardrails(orgId).then(setGuardrails).catch(() => {}); }, [orgId]);
 
@@ -33,20 +199,51 @@ export function Guardrails() {
     } catch (err) { setError(err.response?.data?.error || 'Failed to save'); }
   };
 
+  const addFromTemplate = async (tpl) => {
+    setError('');
+    try {
+      const created = await configApi.createGuardrail(orgId, { ...tpl, enabled: true });
+      setGuardrails(gs => [...gs, created]);
+    } catch (err) { setError(err.response?.data?.error || 'Failed to add guardrail'); }
+  };
+
   const testPattern = () => {
     if (!draft.pattern) return;
     try { setTestResult(new RegExp(draft.pattern, 'i').test(testInput) ? 'match' : 'no-match'); }
     catch (e) { setTestResult('invalid'); }
   };
 
-  const openEdit = (g) => { setDraft(g || { name:'', description:'', type:'both', severity:'medium', action:'block', pattern:'', color:'#7F77DD', enabled:true }); setEditing(g?.id || 'new'); setError(''); setTestInput(''); setTestResult(null); };
+  const openEdit = (g) => {
+    setDraft(g || { name:'', description:'', type:'both', severity:'medium', action:'block', pattern:'', color:'#7F77DD', enabled:true, countries:[] });
+    setEditing(g?.id || 'new'); setError(''); setTestInput(''); setTestResult(null);
+  };
+
+  const existingNames = new Set(guardrails.map(g => g.name));
+
+  // Tab buttons style
+  const tabStyle = (active) => ({
+    fontSize: 12, fontWeight: 500, padding: '5px 14px', borderRadius: 6, cursor: 'pointer', border: 'none',
+    background: active ? 'var(--c-purple)' : 'transparent',
+    color: active ? '#fff' : 'var(--c-text2)',
+  });
+
+  const filteredTemplates = COUNTRY_GUARDRAIL_TEMPLATES.filter(t =>
+    !countryFilter || t.countries.some(c => c === countryFilter)
+  );
 
   return (
     <div>
       <PageHeader title="Guardrails" description="Configure input and output guardrail rules."
         action={can('developer') && <Btn size="sm" onClick={() => openEdit(null)}>+ New guardrail</Btn>} />
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'New guardrail' : 'Edit guardrail'} width={520}>
+      {/* ── Tab bar ── */}
+      <div style={{ display:'flex', gap:4, marginBottom:'1.5rem', background:'var(--c-bg2)', borderRadius:8, padding:4, width:'fit-content', border:'0.5px solid var(--c-border)' }}>
+        <button style={tabStyle(tab==='custom')} onClick={() => setTab('custom')}>My Guardrails</button>
+        <button style={tabStyle(tab==='country')} onClick={() => setTab('country')}>🌍 Country Templates</button>
+      </div>
+
+      {/* ── Modal ── */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'New guardrail' : 'Edit guardrail'} width={540}>
         <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
           <Alert type="error" message={error} />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
@@ -64,6 +261,7 @@ export function Guardrails() {
             </div>
           )}
           {testResult && <Alert type={testResult==='match'?'error':testResult==='no-match'?'success':'warning'} message={testResult==='match'?'✓ Pattern matches — rule would fire':testResult==='no-match'?'✗ No match':' Invalid regex'} />}
+          <CountrySelect selected={draft.countries||[]} onChange={cs => setDraft(d=>({...d,countries:cs}))} />
           <div style={{ display:'flex', gap:8, marginTop:4 }}>
             <Btn onClick={save}>Save guardrail</Btn>
             <Btn variant="secondary" onClick={() => setEditing(null)}>Cancel</Btn>
@@ -71,7 +269,8 @@ export function Guardrails() {
         </div>
       </Modal>
 
-      {['input','output'].map(dir => (
+      {/* ── My Guardrails tab ── */}
+      {tab === 'custom' && ['input','output'].map(dir => (
         <div key={dir} style={{ marginBottom:'1.5rem' }}>
           <div style={{ fontSize:11, fontWeight:500, color:'var(--c-text3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>{dir} guardrails</div>
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
@@ -79,10 +278,15 @@ export function Guardrails() {
               <div key={g.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:'var(--radius)', background:'var(--c-bg)', border:'0.5px solid var(--c-border)', opacity:g.enabled?1:0.55 }}>
                 <div style={{ width:7, height:7, borderRadius:'50%', background:g.color||'#7F77DD', flexShrink:0 }}/>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2, flexWrap:'wrap' }}>
                     <span style={{ fontSize:13, fontWeight:500 }}>{g.name}</span>
                     <Badge text={g.severity} color={SEVERITY_COLORS[g.severity]||'#888'} small />
                     <Badge text={g.action} color="var(--c-text3)" small />
+                    {g.countries && g.countries.length > 0 && (
+                      <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:'#4285F422', color:'#4285F4', border:'0.5px solid #4285F444' }}>
+                        🌍 {g.countries.join(', ')}
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize:11, color:'var(--c-text2)' }}>{g.description}</div>
                 </div>
@@ -93,6 +297,52 @@ export function Guardrails() {
           </div>
         </div>
       ))}
+
+      {/* ── Country Templates tab ── */}
+      {tab === 'country' && (
+        <div>
+          <div style={{ marginBottom:'1rem', display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+            <p style={{ margin:0, fontSize:13, color:'var(--c-text2)', flex:1 }}>
+              Pre-built guardrails for regional compliance laws (GDPR, HIPAA, CCPA, LGPD, and more).
+              Click <strong style={{ color:'var(--c-text)' }}>Add</strong> to enable a template for your org.
+            </p>
+            <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
+              style={{ padding:'6px 10px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)', fontSize:12 }}>
+              <option value=''>All countries</option>
+              {COUNTRIES.filter(c => COUNTRY_GUARDRAIL_TEMPLATES.some(t => t.countries.includes(c.code))).map(c =>
+                <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+              )}
+            </select>
+          </div>
+          <Alert type="error" message={error} />
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {filteredTemplates.map((tpl, i) => {
+              const alreadyAdded = existingNames.has(tpl.name);
+              return (
+                <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:'var(--radius)', background:'var(--c-bg)', border:'0.5px solid var(--c-border)', opacity: alreadyAdded ? 0.5 : 1 }}>
+                  <div style={{ width:7, height:7, borderRadius:'50%', background:tpl.color, flexShrink:0 }}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:2, flexWrap:'wrap' }}>
+                      <span style={{ fontSize:13, fontWeight:500 }}>{tpl.name}</span>
+                      <Badge text={tpl.severity} color={SEVERITY_COLORS[tpl.severity]||'#888'} small />
+                      <Badge text={tpl.action} color="var(--c-text3)" small />
+                      <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:'#4285F422', color:'#4285F4', border:'0.5px solid #4285F444' }}>
+                        🌍 {tpl.countries.length > 4 ? `${tpl.countries.slice(0,3).join(', ')} +${tpl.countries.length-3} more` : tpl.countries.join(', ')}
+                      </span>
+                    </div>
+                    <div style={{ fontSize:11, color:'var(--c-text2)' }}>{tpl.description}</div>
+                  </div>
+                  {can('developer') && (
+                    alreadyAdded
+                      ? <span style={{ fontSize:11, color:'var(--c-text3)' }}>Added</span>
+                      : <Btn size="sm" onClick={() => addFromTemplate(tpl)}>Add</Btn>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
