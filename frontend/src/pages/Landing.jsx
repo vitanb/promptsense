@@ -68,7 +68,7 @@ export default function Landing() {
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <Link to="/pricing" style={{ fontSize:13, color:'var(--c-text2)', padding:'6px 12px', textDecoration:'none' }}>Pricing</Link>
-          <a href="https://docs.promptsense.io" style={{ fontSize:13, color:'var(--c-text2)', padding:'6px 12px', textDecoration:'none' }}>Docs</a>
+          <a href="/docs" style={{ fontSize:13, color:'var(--c-text2)', padding:'6px 12px', textDecoration:'none' }}>Docs</a>
           <Link to="/auth/login" style={{ fontSize:13, color:'var(--c-text2)', padding:'6px 12px', textDecoration:'none' }}>Sign in</Link>
           <Link to="/auth/register" style={{ fontSize:13, fontWeight:500, padding:'7px 16px', background:'var(--c-purple)', color:'#fff', borderRadius:'var(--radius)', textDecoration:'none' }}>Start free</Link>
         </div>
@@ -259,7 +259,7 @@ export default function Landing() {
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em', color:'var(--c-text3)', marginBottom:'0.75rem' }}>Developers</div>
               {['Docs', 'API Reference', 'SDKs', 'Quickstart'].map(l => (
                 <div key={l} style={{ marginBottom:6 }}>
-                  <a href="https://docs.promptsense.io" style={{ fontSize:13, color:'var(--c-text2)', textDecoration:'none' }}>{l}</a>
+                  <a href="/docs" style={{ fontSize:13, color:'var(--c-text2)', textDecoration:'none' }}>{l}</a>
                 </div>
               ))}
             </div>

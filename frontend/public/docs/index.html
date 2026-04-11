@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PromptSense Docs</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --purple: #7F77DD;
+      --purple-light: #7F77DD22;
+      --bg: #0e0e12;
+      --bg2: #14141a;
+      --bg3: #1c1c24;
+      --border: #2a2a38;
+      --text: #e8e8f0;
+      --text2: #9090a8;
+      --green: #1D9E75;
+      --red: #E24B4A;
+      --blue: #378ADD;
+      --orange: #D85A30;
+      --radius: 8px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    a { color: var(--purple); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Layout ── */
+    .layout { display: flex; min-height: 100vh; }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 240px;
+      min-width: 240px;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      padding: 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 20px 18px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo-icon {
+      width: 26px; height: 26px;
+      background: var(--purple);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo span { font-weight: 600; font-size: 14px; color: var(--purple); }
+
+    .sidebar-section { padding: 14px 10px 4px; }
+    .sidebar-section-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text2);
+      padding: 0 8px;
+      margin-bottom: 4px;
+    }
+
+    .sidebar-link {
+      display: block;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text2);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sidebar-link:hover { background: var(--bg3); color: var(--text); text-decoration: none; }
+    .sidebar-link.active { background: var(--purple-light); color: var(--purple); }
+
+    /* ── Content ── */
+    .content { flex: 1; padding: 48px 60px; max-width: 860px; }
+
+    h1 { font-size: 28px; font-weight: 700; margin-bottom: 10px; line-height: 1.25; }
+    h2 { font-size: 20px; font-weight: 600; margin: 48px 0 12px; padding-top: 48px; border-top: 1px solid var(--border); }
+    h2:first-of-type { margin-top: 32px; border-top: none; padding-top: 0; }
+    h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+    h4 { font-size: 13px; font-weight: 600; margin: 16px 0 6px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.04em; }
+
+    p { margin-bottom: 14px; color: var(--text2); }
+    p strong { color: var(--text); }
+
+    ul, ol { margin: 0 0 14px 20px; color: var(--text2); }
+    li { margin-bottom: 5px; }
+    li strong { color: var(--text); }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-get    { background: #378ADD22; color: #378ADD; border: 1px solid #378ADD44; }
+    .badge-post   { background: #1D9E7522; color: #1D9E75; border: 1px solid #1D9E7544; }
+    .badge-put    { background: #BA751722; color: #BA7517; border: 1px solid #BA751744; }
+    .badge-patch  { background: #7F77DD22; color: #7F77DD; border: 1px solid #7F77DD44; }
+    .badge-delete { background: #E24B4A22; color: #E24B4A; border: 1px solid #E24B4A44; }
+    .badge-green  { background: #1D9E7522; color: #1D9E75; border: 1px solid #1D9E7544; }
+    .badge-purple { background: var(--purple-light); color: var(--purple); border: 1px solid #7F77DD44; }
+    .badge-red    { background: #E24B4A22; color: #E24B4A; border: 1px solid #E24B4A44; }
+    .badge-gray   { background: #9090a822; color: var(--text2); border: 1px solid #9090a844; }
+
+    /* ── Code ── */
+    code {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #c9b8f7;
+    }
+
+    pre {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      overflow-x: auto;
+      margin: 12px 0 20px;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: #c9b8f7;
+    }
+
+    .comment { color: #5a5a7a; }
+    .str { color: #98d982; }
+    .kw  { color: #c792ea; }
+    .num { color: #f78c6c; }
+    .key { color: #80cbc4; }
+
+    /* ── Callout ── */
+    .callout {
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin: 16px 0;
+      font-size: 13px;
+      border-left: 3px solid;
+    }
+    .callout-info    { background: #378ADD12; border-color: #378ADD; color: var(--text2); }
+    .callout-warning { background: #BA751712; border-color: #BA7517; color: var(--text2); }
+    .callout-tip     { background: #1D9E7512; border-color: #1D9E75; color: var(--text2); }
+
+    .callout strong { color: var(--text); }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 13px; }
+    th { text-align: left; padding: 8px 12px; background: var(--bg3); color: var(--text2); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+    td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text2); }
+    td strong { color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--bg3); }
+
+    /* ── Endpoint row ── */
+    .endpoint {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      margin: 8px 0;
+      font-size: 13px;
+    }
+    .endpoint code { background: none; border: none; color: var(--text); font-size: 13px; padding: 0; }
+    .endpoint-desc { margin-left: auto; font-size: 12px; color: var(--text2); }
+
+    /* ── Hero ── */
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px; font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 20px;
+      background: var(--purple-light);
+      color: var(--purple);
+      border: 1px solid #7F77DD44;
+      margin-bottom: 16px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .subtitle { font-size: 16px; color: var(--text2); max-width: 560px; margin-bottom: 28px; }
+
+    .quick-links {
+      display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 36px;
+    }
+    .quick-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 14px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 13px; font-weight: 500;
+      color: var(--text);
+      transition: border-color 0.15s;
+      text-decoration: none;
+    }
+    .quick-link:hover { border-color: var(--purple); color: var(--purple); text-decoration: none; }
+
+    /* ── Feature grid ── */
+    .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+    .feature-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .feature-card h4 { margin: 0 0 6px; color: var(--text); font-size: 13px; text-transform: none; letter-spacing: 0; }
+    .feature-card p  { margin: 0; font-size: 12px; }
+
+    /* ── TOC ── */
+    .toc { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin: 24px 0; }
+    .toc h4 { margin-bottom: 10px; color: var(--text); text-transform: none; letter-spacing: 0; }
+    .toc ol { margin: 0 0 0 16px; }
+    .toc li { margin-bottom: 3px; font-size: 13px; }
+
+    /* ── Step ── */
+    .step { display: flex; gap: 14px; margin-bottom: 24px; }
+    .step-num {
+      width: 28px; height: 28px; min-width: 28px;
+      background: var(--purple);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: #fff;
+    }
+    .step-body h3 { margin: 2px 0 8px; }
+
+    /* ── Divider ── */
+    .section-divider { height: 1px; background: var(--border); margin: 48px 0 0; }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .content { padding: 24px 20px; }
+      .feature-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Scroll spy active ── */
+    section { scroll-margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ── Sidebar ─────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">
+        <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#fff" stroke-width="1.5" fill="none"/>
+          <circle cx="7" cy="7" r="2" fill="#fff"/>
+        </svg>
+      </div>
+      <span>PromptSense</span>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Getting Started</div>
+      <a class="sidebar-link" href="#overview">Overview</a>
+      <a class="sidebar-link" href="#quickstart">Quickstart</a>
+      <a class="sidebar-link" href="#architecture">How It Works</a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Core Features</div>
+      <a class="sidebar-link" href="#guardrails">Guardrails</a>
+      <a class="sidebar-link" href="#policies">Policies</a>
+      <a class="sidebar-link" href="#providers">LLM Providers</a>
+      <a class="sidebar-link" href="#proxy">Proxy Endpoint</a>
+      <a class="sidebar-link" href="#templates">Prompt Templates</a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Observability</div>
+      <a class="sidebar-link" href="#analytics">Analytics</a>
+      <a class="sidebar-link" href="#audit-log">Audit Log</a>
+      <a class="sidebar-link" href="#webhooks">Webhooks</a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Testing</div>
+      <a class="sidebar-link" href="#gauntlet">Gauntlet</a>
+      <a class="sidebar-link" href="#playground">Playground</a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Administration</div>
+      <a class="sidebar-link" href="#rbac">Roles & Permissions</a>
+      <a class="sidebar-link" href="#api-keys">API Keys</a>
+      <a class="sidebar-link" href="#members">Team Members</a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">API Reference</div>
+      <a class="sidebar-link" href="#api-auth">Authentication</a>
+      <a class="sidebar-link" href="#api-proxy">Proxy</a>
+      <a class="sidebar-link" href="#api-guardrails">Guardrails</a>
+      <a class="sidebar-link" href="#api-policies">Policies</a>
+      <a class="sidebar-link" href="#api-analytics">Analytics</a>
+      <a class="sidebar-link" href="#api-audit">Audit Log</a>
+      <a class="sidebar-link" href="#api-webhooks">Webhooks</a>
+      <a class="sidebar-link" href="#api-providers">Providers</a>
+      <a class="sidebar-link" href="#api-keys-ref">API Keys</a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Plans</div>
+      <a class="sidebar-link" href="#plans">Plan Comparison</a>
+    </div>
+  </nav>
+
+  <!-- ── Main Content ─────────────────────────────────────── -->
+  <main class="content">
+
+    <!-- Overview -->
+    <section id="overview">
+      <div class="hero-badge">🛡 Enterprise LLM Guardrails</div>
+      <h1>PromptSense Documentation</h1>
+      <p class="subtitle">PromptSense is a multi-tenant LLM guardrail platform that sits between your application and your AI provider — screening every prompt and response for safety, compliance, and quality issues in real time.</p>
+
+      <div class="quick-links">
+        <a class="quick-link" href="#quickstart">⚡ Quickstart</a>
+        <a class="quick-link" href="#proxy">🔗 Proxy Endpoint</a>
+        <a class="quick-link" href="#guardrails">🛡 Guardrails</a>
+        <a class="quick-link" href="#api-proxy">📡 API Reference</a>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <h4>🛡 10 built-in guardrails</h4>
+          <p>PII, prompt injection, toxicity, secrets detection, hallucination checks — active the moment you connect.</p>
+        </div>
+        <div class="feature-card">
+          <h4>⚡ 6 LLM providers</h4>
+          <p>Anthropic, OpenAI, Azure, Gemini, Mistral, Cohere — or bring your own via custom endpoint.</p>
+        </div>
+        <div class="feature-card">
+          <h4>📊 Real-time analytics</h4>
+          <p>Pass rates, flag distribution, provider latency, and cost tracking — all in one live dashboard.</p>
+        </div>
+        <div class="feature-card">
+          <h4>🔔 Webhook alerts</h4>
+          <p>Fire to Slack, PagerDuty, or any HTTP endpoint the instant a prompt is blocked or flagged.</p>
+        </div>
+        <div class="feature-card">
+          <h4>👥 Team RBAC</h4>
+          <p>User, Developer, and Administrator roles with granular permission gating across your org.</p>
+        </div>
+        <div class="feature-card">
+          <h4>📜 Immutable audit log</h4>
+          <p>Every prompt, response, and guardrail decision captured — exportable to CSV for compliance review.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quickstart -->
+    <section id="quickstart">
+      <h2>Quickstart</h2>
+      <p>Get PromptSense protecting your LLM traffic in under 5 minutes.</p>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Create an account</h3>
+          <p>Sign up at <a href="/auth/register">promptsense.io/register</a>. Registration automatically creates your organization and seeds it with 10 system guardrails and a default policy.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Connect an LLM provider</h3>
+          <p>Go to <strong>Integrations</strong> in the dashboard. Click <strong>Connect</strong> next to your provider (e.g. Anthropic), paste your API key, select a model, and click <strong>Save connection</strong>. Keys are encrypted at rest with AES-256-GCM.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Create an API key</h3>
+          <p>Go to <strong>API Keys</strong> and click <strong>Create key</strong>. Copy the key — it won't be shown again. This key is used to authenticate SDK and direct API calls.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Point your app at the proxy</h3>
+          <p>Replace your direct LLM API call with a single POST to the PromptSense proxy:</p>
+          <pre><code><span class="kw">curl</span> -X POST https://your-backend.onrender.com/api/orgs/<span class="str">{orgId}</span>/proxy \
+  -H <span class="str">"X-PromptSense-Key: ps_your_api_key"</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -d <span class="str">'{"prompt": "Summarise this contract for me.", "provider": "anthropic"}'</span></code></pre>
+          <p>PromptSense evaluates the prompt against your active guardrails, routes it to Anthropic (or your chosen provider), screens the response, and returns the result — all in a single call.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture -->
+    <section id="architecture">
+      <h2>How It Works</h2>
+      <p>Every request flows through a 5-stage pipeline:</p>
+
+      <table>
+        <thead><tr><th>Stage</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td><strong>1. Authenticate</strong></td><td>JWT bearer token or <code>X-PromptSense-Key</code> API key is verified.</td></tr>
+          <tr><td><strong>2. Rate limit</strong></td><td>Per-org RPM cap enforced based on your plan (Redis-backed in production).</td></tr>
+          <tr><td><strong>3. Input guardrails</strong></td><td>The prompt is tested against all enabled guardrails with <code>type: input</code> or <code>type: both</code>. Blocked prompts never reach the LLM.</td></tr>
+          <tr><td><strong>4. LLM call</strong></td><td>PromptSense forwards the prompt to your configured provider using your stored (encrypted) API key.</td></tr>
+          <tr><td><strong>5. Output guardrails</strong></td><td>The LLM response is tested against guardrails with <code>type: output</code> or <code>type: both</code>. Flagged responses can be blocked, warned, or logged.</td></tr>
+          <tr><td><strong>6. Audit + webhooks</strong></td><td>Every event — pass or block — is written to the immutable audit log and any matching webhooks are fired asynchronously.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Guardrails -->
+    <section id="guardrails">
+      <h2>Guardrails</h2>
+      <p>Guardrails are regex-based or semantic rules that screen prompts and responses. Each guardrail has a <strong>type</strong> (input / output / both), a <strong>severity</strong>, and an <strong>action</strong>.</p>
+
+      <h3>System Guardrails (pre-seeded)</h3>
+      <table>
+        <thead><tr><th>Name</th><th>Type</th><th>What it catches</th><th>Default action</th></tr></thead>
+        <tbody>
+          <tr><td><strong>PII detection</strong></td><td>Both</td><td>Emails, SSNs, credit card numbers, phone numbers in prompts and responses.</td><td>Block</td></tr>
+          <tr><td><strong>Prompt injection</strong></td><td>Input</td><td>Instructions attempting to override the system prompt (e.g. "ignore previous instructions").</td><td>Block</td></tr>
+          <tr><td><strong>Toxicity filter</strong></td><td>Both</td><td>Profanity, hate speech, and harmful language patterns.</td><td>Block</td></tr>
+          <tr><td><strong>Secrets detection</strong></td><td>Both</td><td>API keys, tokens, and credentials appearing in traffic.</td><td>Block</td></tr>
+          <tr><td><strong>Hallucination check</strong></td><td>Output</td><td>Patterns typical of model confabulation (e.g. fabricated citations).</td><td>Warn</td></tr>
+          <tr><td><strong>Output length cap</strong></td><td>Output</td><td>Responses exceeding a configured character limit.</td><td>Log</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Guardrail Fields</h3>
+      <table>
+        <thead><tr><th>Field</th><th>Values</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>type</strong></td><td><code>input</code> <code>output</code> <code>both</code></td><td>Which side of the LLM call to evaluate.</td></tr>
+          <tr><td><strong>severity</strong></td><td><code>critical</code> <code>high</code> <code>medium</code> <code>low</code></td><td>Surfaced in analytics and audit log for prioritisation.</td></tr>
+          <tr><td><strong>action</strong></td><td><code>block</code> <code>warn</code> <code>log</code></td><td><strong>block</strong> — returns 422 and stops the request. <strong>warn</strong> — returns the response with a <code>warnings</code> field. <strong>log</strong> — passes silently but writes the flag to the audit log.</td></tr>
+          <tr><td><strong>pattern</strong></td><td>Regex string</td><td>Case-insensitive JavaScript regex tested against the text. Use the built-in pattern tester in the dashboard before saving.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Custom Guardrails</h3>
+      <p>Go to <strong>Guardrails → New guardrail</strong>. Write a regex pattern for your domain — for example:</p>
+      <pre><code><span class="comment"># Block competitor brand names</span>
+(acme|rival-corp|competitor-name)
+
+<span class="comment"># Catch attempts to extract training data</span>
+(repeat after me|tell me your (system|instructions|prompt))
+
+<span class="comment"># Detect internal code names</span>
+\b(project-?nova|operation-?bluesky)\b</code></pre>
+
+      <div class="callout callout-tip">
+        <strong>Tip:</strong> Use the <strong>Test pattern</strong> field in the guardrail editor to validate your regex against sample inputs before enabling it in production.
+      </div>
+    </section>
+
+    <!-- Policies -->
+    <section id="policies">
+      <h2>Policies</h2>
+      <p>A <strong>policy</strong> is a named collection of guardrails that can be applied as a bundle. Instead of managing individual rules per integration, create a policy (e.g. "Healthcare compliance") and attach the guardrails that matter for that context.</p>
+
+      <ul>
+        <li>Each org can have multiple policies.</li>
+        <li>Policies can be marked <strong>active</strong> — the proxy always evaluates active policies.</li>
+        <li>A default policy named <em>"Default policy"</em> is seeded at registration containing the 6 core system guardrails.</li>
+        <li>Requires <strong>Developer</strong> role or higher to create or modify.</li>
+      </ul>
+    </section>
+
+    <!-- Providers -->
+    <section id="providers">
+      <h2>LLM Providers</h2>
+      <p>PromptSense supports six major providers out of the box, plus any OpenAI-compatible custom endpoint.</p>
+
+      <table>
+        <thead><tr><th>Provider</th><th>Default endpoint</th><th>Example models</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Anthropic</strong></td>
+            <td><code>https://api.anthropic.com/v1/messages</code></td>
+            <td>claude-sonnet-4, claude-opus-4-5, claude-haiku-4-5</td>
+          </tr>
+          <tr>
+            <td><strong>OpenAI</strong></td>
+            <td><code>https://api.openai.com/v1/chat/completions</code></td>
+            <td>gpt-4o, gpt-4o-mini, gpt-4-turbo</td>
+          </tr>
+          <tr>
+            <td><strong>Azure OpenAI</strong></td>
+            <td><code>https://{resource}.openai.azure.com/openai/deployments/{deployment}/chat/completions</code></td>
+            <td>gpt-4o, gpt-4, gpt-35-turbo</td>
+          </tr>
+          <tr>
+            <td><strong>Google Gemini</strong></td>
+            <td><code>https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent</code></td>
+            <td>gemini-1.5-pro, gemini-1.5-flash</td>
+          </tr>
+          <tr>
+            <td><strong>Mistral AI</strong></td>
+            <td><code>https://api.mistral.ai/v1/chat/completions</code></td>
+            <td>mistral-large-latest, mistral-medium-latest</td>
+          </tr>
+          <tr>
+            <td><strong>Cohere</strong></td>
+            <td><code>https://api.cohere.com/v1/chat</code></td>
+            <td>command-r-plus, command-r</td>
+          </tr>
+          <tr>
+            <td><strong>Custom</strong></td>
+            <td>Any URL you supply</td>
+            <td>Any OpenAI-compatible self-hosted model</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-info">
+        <strong>Security:</strong> Provider API keys are encrypted with AES-256-GCM before being stored in the database. They are never returned in API responses or written to logs.
+      </div>
+
+      <h3>Endpoint URL for Anthropic</h3>
+      <p>When configuring Anthropic, leave the Endpoint URL as the default: <code>https://api.anthropic.com/v1/messages</code>. Do not append a path — PromptSense constructs the full request internally.</p>
+    </section>
+
+    <!-- Proxy -->
+    <section id="proxy">
+      <h2>Proxy Endpoint</h2>
+      <p>The proxy is the single entry point for all LLM traffic. Send your prompt here and PromptSense handles guardrail evaluation, provider routing, and response screening.</p>
+
+      <div class="endpoint">
+        <span class="badge badge-post">POST</span>
+        <code>/api/orgs/{orgId}/proxy</code>
+        <span class="endpoint-desc">Run a prompt through guardrails and your LLM provider</span>
+      </div>
+
+      <h3>Authentication</h3>
+      <p>The proxy accepts two authentication methods:</p>
+      <ul>
+        <li><strong>API Key</strong> (recommended for server-to-server): <code>X-PromptSense-Key: ps_your_key</code></li>
+        <li><strong>JWT Bearer token</strong> (for dashboard / user sessions): <code>Authorization: Bearer &lt;token&gt;</code></li>
+      </ul>
+
+      <h3>Request body</h3>
+      <pre><code>{
+  <span class="key">"prompt"</span>: <span class="str">"Summarise this contract for me."</span>,
+  <span class="key">"provider"</span>: <span class="str">"anthropic"</span>,         <span class="comment">// optional — uses your default connected provider</span>
+  <span class="key">"model"</span>: <span class="str">"claude-sonnet-4-20250514"</span>, <span class="comment">// optional — overrides provider default model</span>
+  <span class="key">"systemPrompt"</span>: <span class="str">"You are a legal assistant."</span>, <span class="comment">// optional</span>
+  <span class="key">"maxTokens"</span>: <span class="num">1024</span>              <span class="comment">// optional</span>
+}</code></pre>
+
+      <h3>Success response (200)</h3>
+      <pre><code>{
+  <span class="key">"output"</span>: <span class="str">"Here is a summary of the contract..."</span>,
+  <span class="key">"passed"</span>: <span class="kw">true</span>,
+  <span class="key">"provider"</span>: <span class="str">"anthropic"</span>,
+  <span class="key">"model"</span>: <span class="str">"claude-sonnet-4-20250514"</span>,
+  <span class="key">"latencyMs"</span>: <span class="num">834</span>,
+  <span class="key">"tokensUsed"</span>: <span class="num">312</span>,
+  <span class="key">"inputFlags"</span>: [],
+  <span class="key">"outputFlags"</span>: []
+}</code></pre>
+
+      <h3>Blocked response (422)</h3>
+      <pre><code>{
+  <span class="key">"error"</span>: <span class="str">"Prompt blocked by guardrail: PII detection"</span>,
+  <span class="key">"guardrail"</span>: <span class="str">"PII detection"</span>,
+  <span class="key">"severity"</span>: <span class="str">"critical"</span>,
+  <span class="key">"passed"</span>: <span class="kw">false</span>
+}</code></pre>
+
+      <h3>Full example — Node.js</h3>
+      <pre><code><span class="kw">const</span> response = <span class="kw">await</span> fetch(
+  <span class="str">`https://your-backend.onrender.com/api/orgs/${orgId}/proxy`</span>,
+  {
+    method: <span class="str">'POST'</span>,
+    headers: {
+      <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span>,
+      <span class="str">'X-PromptSense-Key'</span>: process.env.PROMPTSENSE_API_KEY,
+    },
+    body: JSON.stringify({
+      prompt: userMessage,
+      provider: <span class="str">'anthropic'</span>,
+    }),
+  }
+);
+
+<span class="kw">const</span> data = <span class="kw">await</span> response.json();
+
+<span class="kw">if</span> (!response.ok) {
+  <span class="comment">// Prompt was blocked — handle gracefully</span>
+  console.error(<span class="str">'Blocked:'</span>, data.guardrail);
+} <span class="kw">else</span> {
+  console.log(<span class="str">'Response:'</span>, data.output);
+}</code></pre>
+
+      <h3>Full example — Python</h3>
+      <pre><code><span class="kw">import</span> requests, os
+
+resp = requests.post(
+    f<span class="str">"https://your-backend.onrender.com/api/orgs/{org_id}/proxy"</span>,
+    headers={
+        <span class="str">"X-PromptSense-Key"</span>: os.environ[<span class="str">"PROMPTSENSE_API_KEY"</span>],
+    },
+    json={<span class="str">"prompt"</span>: user_message, <span class="str">"provider"</span>: <span class="str">"anthropic"</span>},
+)
+
+<span class="kw">if</span> resp.status_code == <span class="num">422</span>:
+    print(<span class="str">"Blocked:"</span>, resp.json()[<span class="str">"guardrail"</span>])
+<span class="kw">else</span>:
+    print(<span class="str">"Response:"</span>, resp.json()[<span class="str">"output"</span>])</code></pre>
+
+      <h3>Connecting to a chatbot (input + output guardrails)</h3>
+      <p>To add PromptSense guardrails to an existing chatbot, replace your direct LLM call with the proxy endpoint:</p>
+      <pre><code><span class="comment">// Before — direct Anthropic call</span>
+<span class="kw">const</span> result = <span class="kw">await</span> anthropic.messages.create({
+  model: <span class="str">'claude-sonnet-4-20250514'</span>,
+  messages: [{ role: <span class="str">'user'</span>, content: userInput }],
+});
+
+<span class="comment">// After — PromptSense proxy (guardrails applied automatically)</span>
+<span class="kw">const</span> result = <span class="kw">await</span> fetch(<span class="str">`/api/orgs/${ORG_ID}/proxy`</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: {
+    <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span>,
+    <span class="str">'X-PromptSense-Key'</span>: PROMPTSENSE_KEY,
+  },
+  body: JSON.stringify({ prompt: userInput, provider: <span class="str">'anthropic'</span> }),
+}).then(r => r.json());
+
+<span class="comment">// result.output contains the LLM response</span>
+<span class="comment">// result.passed is false if guardrails blocked the response</span></code></pre>
+    </section>
+
+    <!-- Templates -->
+    <section id="templates">
+      <h2>Prompt Templates</h2>
+      <p>Templates let you define reusable system prompts with variable substitution. Create a template once and reference it by name across your integrations.</p>
+      <ul>
+        <li>Templates use <code>{{variable}}</code> syntax for dynamic values.</li>
+        <li>Stored per-org, versioned, and auditable.</li>
+        <li>Requires <strong>Developer</strong> role to create or modify.</li>
+      </ul>
+      <pre><code><span class="comment"># Example template: "Legal assistant"</span>
+You are a legal assistant for {{company_name}}.
+Your jurisdiction is {{jurisdiction}}.
+Only discuss topics related to {{practice_area}}.
+Never provide specific legal advice — always recommend consulting a licensed attorney.</code></pre>
+    </section>
+
+    <!-- Analytics -->
+    <section id="analytics">
+      <h2>Analytics</h2>
+      <p>The Analytics dashboard shows aggregated metrics for your org's LLM traffic over a selectable time window (7, 14, or 30 days).</p>
+
+      <table>
+        <thead><tr><th>Metric</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Total requests</strong></td><td>All proxy calls in the selected period.</td></tr>
+          <tr><td><strong>Pass rate</strong></td><td>Percentage of requests that passed all guardrails.</td></tr>
+          <tr><td><strong>Avg latency</strong></td><td>Mean end-to-end latency including guardrail evaluation + LLM call.</td></tr>
+          <tr><td><strong>Total tokens</strong></td><td>Combined input + output tokens across all providers.</td></tr>
+          <tr><td><strong>By provider</strong></td><td>Request count and pass rate broken down per LLM provider.</td></tr>
+          <tr><td><strong>By hour</strong></td><td>Traffic volume time-series for trend analysis.</td></tr>
+          <tr><td><strong>Flag summary</strong></td><td>Which guardrails fired most frequently and their severity breakdown.</td></tr>
+          <tr><td><strong>By user / role</strong></td><td>Request volume per team member or role.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Audit Log -->
+    <section id="audit-log">
+      <h2>Audit Log</h2>
+      <p>Every request through the proxy is written to an immutable audit log — whether it passed or was blocked. This provides a tamper-evident record for compliance and incident investigation.</p>
+
+      <h3>Audit record fields</h3>
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>created_at</code></td><td>Timestamp of the event.</td></tr>
+          <tr><td><code>provider</code></td><td>LLM provider used (anthropic, openai, etc.).</td></tr>
+          <tr><td><code>model</code></td><td>Model name.</td></tr>
+          <tr><td><code>passed</code></td><td>Whether all guardrails passed.</td></tr>
+          <tr><td><code>latency_ms</code></td><td>Total round-trip time in milliseconds.</td></tr>
+          <tr><td><code>tokens_used</code></td><td>Token count for the request.</td></tr>
+          <tr><td><code>input_flags</code></td><td>Array of guardrail names that flagged the input.</td></tr>
+          <tr><td><code>output_flags</code></td><td>Array of guardrail names that flagged the output.</td></tr>
+          <tr><td><code>input_text</code></td><td>The original prompt.</td></tr>
+          <tr><td><code>output_text</code></td><td>The LLM response (empty if blocked at input).</td></tr>
+        </tbody>
+      </table>
+
+      <h3>CSV Export</h3>
+      <p>Export up to 10,000 records as CSV for compliance review, SIEM ingestion, or offline analysis. Available to <strong>Pro</strong> and <strong>Enterprise</strong> plans.</p>
+      <pre><code><span class="kw">GET</span> /api/orgs/{orgId}/audit/export</code></pre>
+    </section>
+
+    <!-- Webhooks -->
+    <section id="webhooks">
+      <h2>Webhooks</h2>
+      <p>Webhooks fire an HTTP POST to your chosen endpoint whenever a guardrail event occurs. Use them to push alerts to Slack, PagerDuty, or your own SIEM.</p>
+
+      <h3>Event triggers</h3>
+      <ul>
+        <li><strong>prompt.blocked</strong> — a prompt was blocked by a guardrail.</li>
+        <li><strong>response.blocked</strong> — a response was blocked after the LLM call.</li>
+        <li><strong>guardrail.flagged</strong> — a warn-action guardrail fired (but did not block).</li>
+      </ul>
+
+      <h3>Webhook payload</h3>
+      <pre><code>{
+  <span class="key">"event"</span>: <span class="str">"prompt.blocked"</span>,
+  <span class="key">"orgId"</span>: <span class="str">"3fa85f64-..."</span>,
+  <span class="key">"guardrail"</span>: <span class="str">"PII detection"</span>,
+  <span class="key">"severity"</span>: <span class="str">"critical"</span>,
+  <span class="key">"provider"</span>: <span class="str">"anthropic"</span>,
+  <span class="key">"timestamp"</span>: <span class="str">"2026-04-11T14:32:00Z"</span>
+}</code></pre>
+
+      <div class="callout callout-warning">
+        <strong>SSRF protection:</strong> Webhook URLs are validated against a blocklist of private IP ranges before being saved. Only public HTTPS endpoints are accepted.
+      </div>
+    </section>
+
+    <!-- Gauntlet -->
+    <section id="gauntlet">
+      <h2>Gauntlet</h2>
+      <p>Gauntlet is PromptSense's automated adversarial test suite. It fires a curated library of attack prompts at your guardrail configuration and reports which ones were blocked vs. which slipped through.</p>
+
+      <h3>Test categories</h3>
+      <ul>
+        <li><strong>Prompt injection</strong> — jailbreaks, role-play overrides, instruction extraction attempts.</li>
+        <li><strong>PII exfiltration</strong> — prompts that try to leak personal data.</li>
+        <li><strong>Toxicity bypass</strong> — encoded or obfuscated harmful content.</li>
+        <li><strong>Secrets leakage</strong> — attempts to surface API keys or credentials.</li>
+        <li><strong>Adversarial inputs</strong> — edge cases designed to confuse regex-based filters.</li>
+      </ul>
+
+      <h3>Running a Gauntlet test</h3>
+      <ol>
+        <li>Go to <strong>Gauntlet</strong> in the dashboard.</li>
+        <li>Select the test categories you want to run.</li>
+        <li>Click <strong>Run gauntlet</strong>.</li>
+        <li>Review the results table — each test shows pass/fail, the guardrail that caught it (or "Missed"), and the exact test prompt.</li>
+      </ol>
+
+      <div class="callout callout-tip">
+        <strong>Tip:</strong> Run Gauntlet after adding or modifying guardrails to verify your changes catch the intended attack patterns without over-blocking legitimate traffic.
+      </div>
+    </section>
+
+    <!-- Playground -->
+    <section id="playground">
+      <h2>Playground</h2>
+      <p>The Playground lets you test prompts manually against your live guardrail configuration — without touching production traffic or your request quota.</p>
+      <ul>
+        <li>Select any connected provider and model.</li>
+        <li>Type or paste a prompt and click <strong>Run</strong>.</li>
+        <li>See the full guardrail evaluation result: which rules fired, the LLM response, latency, and token count.</li>
+        <li>Playground calls <em>are</em> written to the audit log for traceability.</li>
+      </ul>
+    </section>
+
+    <!-- RBAC -->
+    <section id="rbac">
+      <h2>Roles &amp; Permissions</h2>
+      <table>
+        <thead><tr><th>Role</th><th>What they can do</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-gray">User</span></td>
+            <td>View analytics, audit log, guardrails, and policies. Use the Playground. Cannot modify configuration.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-purple">Developer</span></td>
+            <td>Everything a User can do, plus: create/edit guardrails, policies, templates, webhooks, API keys, and configure LLM providers.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-green">Administrator</span></td>
+            <td>Full access. Invite and remove team members, change roles, manage billing and org settings.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>Role changes take effect immediately. Superusers (platform staff) bypass all role checks.</p>
+    </section>
+
+    <!-- API Keys -->
+    <section id="api-keys">
+      <h2>API Keys</h2>
+      <p>API keys are used to authenticate server-to-server calls to the proxy endpoint. They do not expire by default but can be revoked instantly.</p>
+
+      <ul>
+        <li>Keys are displayed only once at creation — copy and store them securely.</li>
+        <li>Keys are stored as SHA-256 hashes — PromptSense cannot recover a lost key.</li>
+        <li>Requires <strong>Developer</strong> role or higher to create.</li>
+        <li>Pass keys in the <code>X-PromptSense-Key</code> header.</li>
+      </ul>
+
+      <div class="callout callout-warning">
+        <strong>Never expose API keys client-side.</strong> Always call the proxy from your backend server, not from browser JavaScript.
+      </div>
+    </section>
+
+    <!-- Members -->
+    <section id="members">
+      <h2>Team Members</h2>
+      <p>Invite team members by email from <strong>Members</strong> in the dashboard. Invitees receive an email with a registration link pre-associated to your org.</p>
+      <ul>
+        <li>Assign a role (User, Developer, or Administrator) at invite time.</li>
+        <li>Change roles or remove members at any time — requires <strong>Administrator</strong>.</li>
+        <li>Member limits apply based on your plan (3 on Starter, 15 on Pro, unlimited on Enterprise).</li>
+      </ul>
+    </section>
+
+    <!-- API Reference -->
+    <section id="api-auth">
+      <h2>API Reference — Authentication</h2>
+      <p>All API calls require either a <strong>JWT Bearer token</strong> (obtained from <code>POST /api/auth/login</code>) or an <strong>API key</strong> in the <code>X-PromptSense-Key</code> header for proxy calls.</p>
+
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/auth/register</code><span class="endpoint-desc">Create account + org</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/auth/login</code><span class="endpoint-desc">Get access + refresh tokens</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/auth/refresh</code><span class="endpoint-desc">Rotate access token</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/auth/logout</code><span class="endpoint-desc">Revoke refresh token</span></div>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/auth/me</code><span class="endpoint-desc">Current user + org memberships</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/auth/forgot-password</code><span class="endpoint-desc">Send reset email</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/auth/reset-password</code><span class="endpoint-desc">Set new password from token</span></div>
+    </section>
+
+    <section id="api-proxy">
+      <h2>API Reference — Proxy</h2>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/orgs/{orgId}/proxy</code><span class="endpoint-desc">Run prompt through guardrails + LLM</span></div>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/analytics</code><span class="endpoint-desc">Aggregated analytics (query: ?days=7|14|30)</span></div>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/audit</code><span class="endpoint-desc">Paginated audit log (query: ?page=1&limit=50)</span></div>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/audit/export</code><span class="endpoint-desc">Download audit log as CSV</span></div>
+    </section>
+
+    <section id="api-guardrails">
+      <h2>API Reference — Guardrails</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/guardrails</code><span class="endpoint-desc">List all guardrails</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/orgs/{orgId}/guardrails</code><span class="endpoint-desc">Create guardrail <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-patch">PATCH</span><code>/api/orgs/{orgId}/guardrails/{id}</code><span class="endpoint-desc">Update guardrail <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-delete">DELETE</span><code>/api/orgs/{orgId}/guardrails/{id}</code><span class="endpoint-desc">Delete guardrail <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+    </section>
+
+    <section id="api-policies">
+      <h2>API Reference — Policies</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/policies</code><span class="endpoint-desc">List policies</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/orgs/{orgId}/policies</code><span class="endpoint-desc">Create policy <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-patch">PATCH</span><code>/api/orgs/{orgId}/policies/{id}</code><span class="endpoint-desc">Update policy <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-delete">DELETE</span><code>/api/orgs/{orgId}/policies/{id}</code><span class="endpoint-desc">Delete policy <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+    </section>
+
+    <section id="api-analytics">
+      <h2>API Reference — Analytics</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/analytics?days=7</code><span class="endpoint-desc">Returns summary, byProvider, byHour, flagSummary, byUser</span></div>
+    </section>
+
+    <section id="api-audit">
+      <h2>API Reference — Audit Log</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/audit?page=1&amp;limit=50</code><span class="endpoint-desc">Paginated event list (max 200 per page)</span></div>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/audit/export</code><span class="endpoint-desc">Stream CSV of up to 10,000 events</span></div>
+    </section>
+
+    <section id="api-webhooks">
+      <h2>API Reference — Webhooks</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/webhooks</code><span class="endpoint-desc">List webhooks</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/orgs/{orgId}/webhooks</code><span class="endpoint-desc">Create webhook <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-patch">PATCH</span><code>/api/orgs/{orgId}/webhooks/{id}</code><span class="endpoint-desc">Update webhook <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-delete">DELETE</span><code>/api/orgs/{orgId}/webhooks/{id}</code><span class="endpoint-desc">Delete webhook <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+    </section>
+
+    <section id="api-providers">
+      <h2>API Reference — Providers</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/providers</code><span class="endpoint-desc">List connected providers</span></div>
+      <div class="endpoint"><span class="badge badge-put">PUT</span><code>/api/orgs/{orgId}/providers</code><span class="endpoint-desc">Create or update provider connection <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-delete">DELETE</span><code>/api/orgs/{orgId}/providers/{provider}</code><span class="endpoint-desc">Remove provider <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+    </section>
+
+    <section id="api-keys-ref">
+      <h2>API Reference — API Keys</h2>
+      <div class="endpoint"><span class="badge badge-get">GET</span><code>/api/orgs/{orgId}/api-keys</code><span class="endpoint-desc">List API keys</span></div>
+      <div class="endpoint"><span class="badge badge-post">POST</span><code>/api/orgs/{orgId}/api-keys</code><span class="endpoint-desc">Create API key <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+      <div class="endpoint"><span class="badge badge-delete">DELETE</span><code>/api/orgs/{orgId}/api-keys/{id}</code><span class="endpoint-desc">Revoke API key <span class="badge badge-purple" style="margin-left:4px">developer</span></span></div>
+    </section>
+
+    <!-- Plans -->
+    <section id="plans">
+      <h2>Plan Comparison</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th><span class="badge badge-blue" style="background:#378ADD22;color:#378ADD;border:1px solid #378ADD44;">Starter</span></th>
+            <th><span class="badge badge-purple">Pro</span></th>
+            <th><span class="badge badge-green">Enterprise</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Monthly requests</td><td>5,000</td><td>50,000</td><td>Unlimited</td></tr>
+          <tr><td>Team members</td><td>3</td><td>15</td><td>Unlimited</td></tr>
+          <tr><td>Guardrail rules</td><td>10</td><td>50</td><td>Unlimited</td></tr>
+          <tr><td>Prompt templates</td><td>10</td><td>100</td><td>Unlimited</td></tr>
+          <tr><td>Custom regex guardrails</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Policy sets</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Immutable audit log</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>CSV audit export</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Webhook alerts</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Downstream routing</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Custom / self-hosted LLMs</td><td>—</td><td>✓</td><td>✓</td></tr>
+          <tr><td>AES-256-GCM encryption</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>RBAC</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>SSO / SAML 2.0</td><td>—</td><td>—</td><td>✓</td></tr>
+          <tr><td>SOC 2 Type II package</td><td>—</td><td>—</td><td>✓</td></tr>
+          <tr><td>Uptime SLA</td><td>—</td><td>99.5%</td><td>99.9%</td></tr>
+          <tr><td>Support</td><td>Email</td><td>Priority email</td><td>Dedicated</td></tr>
+          <tr><td>Price</td><td>Free</td><td>$49 / mo</td><td>$199 / mo</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <div style="height: 80px;"></div>
+  </main>
+</div>
+
+<script>
+  // Scroll-spy: highlight active sidebar link
+  const links = document.querySelectorAll('.sidebar-link');
+  const sections = document.querySelectorAll('section[id]');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar-link[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+
+  // Smooth scroll
+  links.forEach(link => {
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      const id = link.getAttribute('href').slice(1);
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+    });
+  });
+</script>
+</body>
+</html>
