@@ -103,22 +103,41 @@ async function login(req, res) {
   if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
 
   // Run all independent operations in parallel to cut login time
-  const tokenExtra = { email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser: user.is_superuser === true };
+  const isSuperuser = user.is_superuser === true;
+  const tokenExtra = { email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser };
   const tokens = generateTokens(user.id, tokenExtra);
+
+  // Superusers have no membership rows — fetch all orgs for them instead
+  const membershipQuery = isSuperuser
+    ? query(
+        `SELECT o.id as org_id, o.name as org_name, o.slug,
+                o.subscription_status, COALESCE(p.name, 'starter') as plan_name,
+                'administrator' as role
+         FROM organizations o
+         LEFT JOIN plans p ON p.id = o.plan_id
+         WHERE o.deleted_at IS NULL
+         ORDER BY o.created_at ASC`,
+        []
+      )
+    : query(
+        `SELECT m.role, m.org_id, o.name as org_name, o.slug,
+                COALESCE(p.name, 'starter') as plan_name
+         FROM memberships m
+         JOIN organizations o ON o.id=m.org_id
+         LEFT JOIN plans p ON p.id=o.plan_id
+         WHERE m.user_id=$1 AND m.active=true`,
+        [user.id]
+      );
+
   const [{ rows: memberships }] = await Promise.all([
-    query(
-      `SELECT m.role, m.org_id, o.name as org_name, o.slug, p.name as plan_name
-       FROM memberships m JOIN organizations o ON o.id=m.org_id JOIN plans p ON p.id=o.plan_id
-       WHERE m.user_id=$1 AND m.active=true`,
-      [user.id]
-    ),
+    membershipQuery,
     storeRefreshToken(user.id, tokens.refreshToken),
     query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]),
   ]);
   const { accessToken, refreshToken } = tokens;
 
   res.json({
-    user: { id: user.id, email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser: user.is_superuser === true },
+    user: { id: user.id, email: user.email, fullName: user.full_name, avatarUrl: user.avatar_url, emailVerified: user.email_verified, isSuperuser },
     orgs: memberships,
     accessToken,
     refreshToken,
@@ -232,18 +251,38 @@ async function logout(req, res) {
 // GET /auth/me
 async function me(req, res) {
   try {
-    const { rows: memberships } = await query(
-      `SELECT m.role, m.org_id, o.name as org_name, o.slug,
-              o.subscription_status, COALESCE(p.name, 'starter') as plan_name
-       FROM memberships m
-       JOIN organizations o ON o.id=m.org_id
-       LEFT JOIN plans p ON p.id=o.plan_id
-       WHERE m.user_id=$1 AND m.active=true AND o.deleted_at IS NULL`,
-      [req.userId]
-    );
+    let orgs;
+
+    if (req.isSuperuser) {
+      // Superusers have no membership rows — return all active orgs so they
+      // can pick one from the org switcher in the UI.
+      const { rows } = await query(
+        `SELECT o.id as org_id, o.name as org_name, o.slug,
+                o.subscription_status, COALESCE(p.name, 'starter') as plan_name,
+                'administrator' as role
+         FROM organizations o
+         LEFT JOIN plans p ON p.id = o.plan_id
+         WHERE o.deleted_at IS NULL
+         ORDER BY o.created_at ASC`,
+        []
+      );
+      orgs = rows;
+    } else {
+      const { rows } = await query(
+        `SELECT m.role, m.org_id, o.name as org_name, o.slug,
+                o.subscription_status, COALESCE(p.name, 'starter') as plan_name
+         FROM memberships m
+         JOIN organizations o ON o.id=m.org_id
+         LEFT JOIN plans p ON p.id=o.plan_id
+         WHERE m.user_id=$1 AND m.active=true AND o.deleted_at IS NULL`,
+        [req.userId]
+      );
+      orgs = rows;
+    }
+
     res.json({
       user: { ...req.user, isSuperuser: req.user.is_superuser === true },
-      orgs: memberships
+      orgs,
     });
   } catch (err) {
     logger.error('me endpoint error', { error: err.message, userId: req.userId });
