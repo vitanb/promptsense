@@ -4,19 +4,24 @@ const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 
 // ── Country detection ─────────────────────────────────────────────────────────
-// Priority: Cloudflare header → geoip-lite → null (apply all guardrails)
+// Uses geoip-lite for local IP → country lookup (no external API call, works
+// on any host including Render + Google Cloud DNS).
+// Express trust proxy is already set to 1, so req.ip reflects the real client
+// IP from the X-Forwarded-For header passed by Render's load balancer.
 let geoip = null;
 try { geoip = require('geoip-lite'); } catch (_) {}
 
 function detectCountry(req) {
-  const cf = req.headers['cf-ipcountry'];
-  if (cf && cf !== 'XX') return cf.toUpperCase();
-  if (geoip) {
-    const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
-    const geo = geoip.lookup(ip);
-    if (geo?.country) return geo.country.toUpperCase();
-  }
-  return null; // unknown — apply all guardrails to be safe
+  if (!geoip) return null; // library not installed — apply all guardrails
+
+  // Take the leftmost (original client) IP from X-Forwarded-For.
+  // With trust proxy = 1, req.ip is already the client IP, but
+  // reading the header directly is more explicit and equally reliable.
+  const raw = req.headers['x-forwarded-for'] || req.ip || '';
+  const ip  = raw.split(',')[0].trim();
+
+  const geo = geoip.lookup(ip);
+  return geo?.country ? geo.country.toUpperCase() : null;
 }
 
 // ── Guardrail evaluation ──────────────────────────────────────────────────────
