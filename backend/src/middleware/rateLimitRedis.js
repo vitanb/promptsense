@@ -33,21 +33,35 @@ async function getRedis() {
   }
 
   try {
-    // ioredis is already a common dep — add it: npm install ioredis
     const Redis = require('ioredis');
-    redisClient = new Redis(url, {
-      tls:             url.startsWith('rediss://') ? {} : undefined,
+    const client = new Redis(url, {
+      tls:                  url.startsWith('rediss://') ? {} : undefined,
       maxRetriesPerRequest: 3,
       enableReadyCheck:     true,
       lazyConnect:          true,
+      // Stop ioredis from retrying forever if Redis is unavailable
+      retryStrategy: (times) => (times > 3 ? null : Math.min(times * 200, 2000)),
     });
-    await redisClient.connect();
+
+    // MUST attach an error handler — without it Node throws an unhandled
+    // error event which can crash the process or block all requests.
+    client.on('error', (err) => {
+      logger.error('Redis client error — rate limiter will fall back to in-memory', { error: err.message });
+      // If the connection is lost after initial connect, disable Redis limiter
+      // so the in-memory fallback takes over on the next request.
+      useRedis = false;
+      redisClient = null;
+    });
+
+    await client.connect();
+    redisClient = client;
     useRedis = true;
     logger.info('Redis rate limiter connected');
     return redisClient;
   } catch (err) {
     logger.error('Redis connection failed — falling back to in-memory limiter', { error: err.message });
     redisClient = null;
+    useRedis = false;
     return null;
   }
 }
