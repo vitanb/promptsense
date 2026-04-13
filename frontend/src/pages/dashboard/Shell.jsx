@@ -13,6 +13,7 @@ const NAV = [
   { to:'policies',     icon:'📋', label:'Policies' },
   { to:'templates',    icon:'📄', label:'Templates' },
   { to:'webhooks',     icon:'🔔', label:'Webhooks' },
+  { to:'downstream',   icon:'🔀', label:'Downstream', minRole:'developer' },
   null,
   { to:'analytics',   icon:'📊', label:'Analytics' },
   { to:'audit',        icon:'📜', label:'Audit log' },
