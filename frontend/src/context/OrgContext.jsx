@@ -46,8 +46,29 @@ export function OrgProvider({ children }) {
     return (ROLE_RANK[role] ?? -1) >= (ROLE_RANK[minRole] ?? 99);
   };
 
+  // ── Trial / plan state ──────────────────────────────────────────────────────
+  // Free plan = starter plan with no active paid subscription
+  const isFreePlan = !isSuperuser
+    && !!orgDetail
+    && orgDetail.plan_name === 'starter'
+    && orgDetail.is_paid !== true;
+
+  // Compute trial window from trial_ends_at returned by the API
+  const trialEndsAt    = orgDetail?.trial_ends_at ? new Date(orgDetail.trial_ends_at) : null;
+  const now            = new Date();
+  const trialMsLeft    = trialEndsAt ? trialEndsAt - now : 0;
+  const trialDaysLeft  = trialMsLeft > 0 ? Math.ceil(trialMsLeft / (1000 * 60 * 60 * 24)) : 0;
+  const isTrialActive  = isFreePlan && trialMsLeft > 0;
+  const isTrialExpired = isFreePlan && trialMsLeft <= 0;
+
+  // DEBUG — remove after confirming banner works
+  if (orgDetail) console.log('[Trial]', { isSuperuser, plan: orgDetail.plan_name, is_paid: orgDetail.is_paid, trial_ends_at: orgDetail.trial_ends_at, isFreePlan, isTrialActive, isTrialExpired, trialDaysLeft });
+
   return (
-    <OrgContext.Provider value={{ currentOrg, orgDetail, role, loading, switchOrg, can, setOrgDetail, isSuperuser }}>
+    <OrgContext.Provider value={{
+      currentOrg, orgDetail, role, loading, switchOrg, can, setOrgDetail, isSuperuser,
+      isFreePlan, isTrialActive, isTrialExpired, trialDaysLeft, trialEndsAt,
+    }}>
       {children}
     </OrgContext.Provider>
   );

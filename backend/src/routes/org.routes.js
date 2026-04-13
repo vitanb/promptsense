@@ -31,7 +31,7 @@ router.get('/', async (req, res) => {
             -- Trial window: 7 days from org creation, only meaningful for starter plan
             (o.created_at + INTERVAL '7 days')                      AS trial_ends_at,
             -- Paid = has an active Stripe subscription on any plan
-            (o.subscription_status = 'active')                       AS is_paid
+            COALESCE(o.subscription_status = 'active', false)        AS is_paid
      FROM organizations o JOIN plans p ON p.id=o.plan_id WHERE o.id=$1`,
     [req.orgId]
   );
