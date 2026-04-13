@@ -60,6 +60,8 @@ export const authApi = {
   forgotPassword: (email)            => api.post('/auth/forgot-password', { email }).then(r => r.data),
   resetPassword:  (token, password)  => api.post('/auth/reset-password', { token, password }).then(r => r.data),
   deleteAccount:  (password)         => api.delete('/auth/account', { data: { password } }).then(r => r.data),
+  // SSO — check if an email domain has SSO configured (called from login page)
+  checkSso: (email) => api.get('/auth/sso/check', { params: { email } }).then(r => r.data),
 };
 
 // ── Org ───────────────────────────────────────────────────────────────────────
@@ -117,6 +119,10 @@ export const configApi = {
   // Downstream
   downstream:       (orgId)      => api.get(`${o(orgId)}/downstream`).then(r => r.data),
   upsertDownstream: (orgId, data)=> api.put(`${o(orgId)}/downstream`, data).then(r => r.data),
+
+  // SSO configuration (org-scoped, admin only)
+  sso:       (orgId)      => api.get(`${o(orgId)}/sso`).then(r => r.data),
+  upsertSso: (orgId, data)=> api.put(`${o(orgId)}/sso`, data).then(r => r.data),
 };
 
 // ── Proxy / Analytics ─────────────────────────────────────────────────────────

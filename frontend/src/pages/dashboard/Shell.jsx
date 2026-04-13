@@ -21,6 +21,7 @@ const NAV = [
   null,
   { to:'members',      icon:'👥', label:'Members',  minRole:'administrator' },
   { to:'api-keys',     icon:'🔑', label:'API keys', minRole:'developer' },
+  { to:'sso',          icon:'🔐', label:'SSO',      minRole:'administrator' },
   { to:'billing',      icon:'💳', label:'Billing',  minRole:'administrator' },
   { to:'settings',     icon:'⚙', label:'Settings', minRole:'administrator' },
   null,

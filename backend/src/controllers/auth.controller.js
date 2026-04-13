@@ -290,4 +290,4 @@ async function me(req, res) {
   }
 }
 
-module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me, deleteAccount };
+module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me, deleteAccount, generateTokens, storeRefreshToken };

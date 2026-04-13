@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const logger = require('./utils/logger');
 
 const authRoutes     = require('./routes/auth.routes');
+const ssoRoutes      = require('./routes/sso.routes');
 const orgRoutes      = require('./routes/org.routes');
 const configRoutes   = require('./routes/config.routes');
 const proxyRoutes    = require('./routes/proxy.routes');
@@ -45,6 +46,7 @@ app.use('/api/auth/register', authLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',                      authRoutes);
+app.use('/api/auth/sso',                  ssoRoutes);
 app.use('/api/orgs/:orgId',               orgRoutes);
 app.use('/api/orgs/:orgId',               configRoutes);
 app.use('/api/orgs/:orgId',               proxyRoutes);

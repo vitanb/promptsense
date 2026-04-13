@@ -1,5 +1,6 @@
 const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/config.controller');
+const ssoCtrl = require('../controllers/sso.controller');
 const { authenticate, loadOrg, requireRole } = require('../middleware/auth');
 const { validateWebhookUrl, validateDownstreamUrl } = require('../middleware/validate');
 
@@ -66,5 +67,9 @@ router.put('/downstream', authenticate, loadOrg, requireRole('developer'), valid
   );
   res.status(201).json(ds);
 });
+
+// SSO configuration (per-org)
+router.get('/sso',  requireRole('administrator'), ssoCtrl.getSsoConfig);
+router.put('/sso',  requireRole('administrator'), ssoCtrl.upsertSsoConfig);
 
 module.exports = router;

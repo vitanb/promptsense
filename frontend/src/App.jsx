@@ -30,7 +30,9 @@ import Settings        from './pages/dashboard/Settings';
 import ApiKeys         from './pages/dashboard/ApiKeys';
 import Gauntlet        from './pages/dashboard/Gauntlet';
 import Downstream      from './pages/dashboard/Downstream';
+import SSO            from './pages/dashboard/SSO';
 import SuperAdmin      from './pages/dashboard/SuperAdmin';
+import SsoCallback     from './pages/auth/SsoCallback';
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -60,6 +62,7 @@ export default function App() {
       <Route path="/auth/forgot-password" element={<ForgotPassword />} />
       <Route path="/auth/reset-password"  element={<ResetPassword />} />
       <Route path="/auth/verify-email"    element={<VerifyEmail />} />
+      <Route path="/auth/sso/callback"    element={<SsoCallback />} />
 
       {/* Dashboard — all children protected */}
       <Route path="/dashboard/*" element={<RequireAuth><DashboardShell /></RequireAuth>}>
@@ -79,6 +82,7 @@ export default function App() {
         <Route path="api-keys"     element={<ApiKeys />} />
         <Route path="gauntlet"     element={<Gauntlet />} />
         <Route path="downstream"   element={<Downstream />} />
+        <Route path="sso"          element={<SSO />} />
         <Route path="super-admin"  element={<SuperAdmin />} />
       </Route>
 
