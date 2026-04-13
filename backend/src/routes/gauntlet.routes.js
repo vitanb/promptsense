@@ -1,9 +1,9 @@
 const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/gauntlet.controller');
-const { authenticate, loadOrg, requireRole } = require('../middleware/auth');
+const { authenticate, loadOrg, requireRole, requireTrialAccess } = require('../middleware/auth');
 
-// All gauntlet routes require auth + org membership
-router.use(authenticate, loadOrg);
+// All gauntlet routes require auth + org membership; blocked during free trial
+router.use(authenticate, loadOrg, requireTrialAccess());
 
 // Available probe categories (public within org)
 router.get('/categories', ctrl.listCategories);

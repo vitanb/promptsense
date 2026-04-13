@@ -1,20 +1,19 @@
 const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/proxy.controller');
-const { authenticate, loadOrg, authenticateApiKey } = require('../middleware/auth');
+const { authenticate, loadOrg, authenticateApiKey, requireTrialAccess } = require('../middleware/auth');
 const { validateProxy } = require('../middleware/validate');
 // Use Redis-backed rate limiter in production (falls back to in-memory if REDIS_URL not set)
 const { perOrgRateLimit } = require('../middleware/rateLimitRedis');
 
-// Proxy accepts both JWT and API key auth
-// validateProxy → sanitises/limits prompt; perOrgRateLimit → plan-based rpm cap
-router.post('/proxy', authenticateApiKey, authenticate, loadOrg, perOrgRateLimit, validateProxy, ctrl.proxyPrompt);
+// Proxy — allowed during free trial (Playground feature)
+router.post('/proxy', authenticateApiKey, authenticate, loadOrg, requireTrialAccess({ trial: true }), perOrgRateLimit, validateProxy, ctrl.proxyPrompt);
 
-// Analytics + Audit (JWT only)
-router.get('/analytics', authenticate, loadOrg, ctrl.getAnalytics);
-router.get('/audit',     authenticate, loadOrg, ctrl.getAuditLog);
+// Analytics + Audit — blocked during free trial
+router.get('/analytics', authenticate, loadOrg, requireTrialAccess(), ctrl.getAnalytics);
+router.get('/audit',     authenticate, loadOrg, requireTrialAccess(), ctrl.getAuditLog);
 
-// CSV export
-router.get('/audit/export', authenticate, loadOrg, async (req, res) => {
+// CSV export — blocked during free trial
+router.get('/audit/export', authenticate, loadOrg, requireTrialAccess(), async (req, res) => {
   const { query } = require('../db/pool');
   const { rows } = await query(
     'SELECT * FROM audit_events WHERE org_id=$1 ORDER BY created_at DESC LIMIT 10000',

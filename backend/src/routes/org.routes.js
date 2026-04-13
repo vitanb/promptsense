@@ -1,33 +1,37 @@
 const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/org.controller');
-const { authenticate, loadOrg, requireRole } = require('../middleware/auth');
+const { authenticate, loadOrg, requireRole, requireTrialAccess } = require('../middleware/auth');
 
 // All org routes require auth + org membership
 router.use(authenticate, loadOrg);
 
-// Members
-router.get('/members',                                              ctrl.listMembers);
-router.post('/members/invite',        requireRole('administrator'), ctrl.inviteMember);
-router.patch('/members/:memberId/role',       requireRole('administrator'), ctrl.updateMemberRole);
-router.patch('/members/:memberId/department', requireRole('administrator'), ctrl.updateMemberDepartment);
-router.delete('/members/:memberId',           requireRole('administrator'), ctrl.removeMember);
+// Members — blocked during free trial
+router.get('/members',                                              requireTrialAccess(), ctrl.listMembers);
+router.post('/members/invite',        requireRole('administrator'), requireTrialAccess(), ctrl.inviteMember);
+router.patch('/members/:memberId/role',       requireRole('administrator'), requireTrialAccess(), ctrl.updateMemberRole);
+router.patch('/members/:memberId/department', requireRole('administrator'), requireTrialAccess(), ctrl.updateMemberDepartment);
+router.delete('/members/:memberId',           requireRole('administrator'), requireTrialAccess(), ctrl.removeMember);
 
-// Provider connections
-router.get('/providers',                          ctrl.listProviders);
-router.put('/providers',        requireRole('developer'), ctrl.upsertProvider);
-router.delete('/providers/:provider', requireRole('developer'), ctrl.deleteProvider);
+// Provider connections — allowed during free trial (Integrations page)
+router.get('/providers',                          requireTrialAccess({ trial: true }), ctrl.listProviders);
+router.put('/providers',        requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.upsertProvider);
+router.delete('/providers/:provider', requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.deleteProvider);
 
-// API Keys
-router.get('/api-keys',                           ctrl.listApiKeys);
-router.post('/api-keys',        requireRole('developer'), ctrl.createApiKey);
-router.delete('/api-keys/:id',  requireRole('developer'), ctrl.revokeApiKey);
+// API Keys — allowed during free trial (needed to use Playground via SDK)
+router.get('/api-keys',                           requireTrialAccess({ trial: true }), ctrl.listApiKeys);
+router.post('/api-keys',        requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.createApiKey);
+router.delete('/api-keys/:id',  requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.revokeApiKey);
 
 // Org info
 router.get('/', async (req, res) => {
   const { query } = require('../db/pool');
   const { rows: [org] } = await query(
     `SELECT o.*, p.name as plan_name, p.display_name, p.price_monthly, p.requests_per_month,
-            p.members_limit, p.guardrails_limit, p.webhooks_limit, p.features
+            p.members_limit, p.guardrails_limit, p.webhooks_limit, p.features,
+            -- Trial window: 7 days from org creation, only meaningful for starter plan
+            (o.created_at + INTERVAL '7 days')                      AS trial_ends_at,
+            -- Paid = has an active Stripe subscription on any plan
+            (o.subscription_status = 'active')                       AS is_paid
      FROM organizations o JOIN plans p ON p.id=o.plan_id WHERE o.id=$1`,
     [req.orgId]
   );

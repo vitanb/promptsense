@@ -1,31 +1,34 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useOrg } from '../../context/OrgContext';
 import { useEffect, useState } from 'react';
 import { orgApi, configApi } from '../../services/api';
 
+// trialOk: true  → visible and clickable during the free trial
+// trialOk: false → locked during trial (greyed out with lock icon)
+// Billing is always accessible so users can upgrade
 const NAV = [
-  { to:'onboarding',   icon:'🚀', label:'Get started',  onboardingOnly: true },
+  { to:'onboarding',   icon:'🚀', label:'Get started',  onboardingOnly: true, trialOk: true },
   null,
-  { to:'playground',   icon:'▶', label:'Playground' },
-  { to:'integrations', icon:'⚡', label:'Integrations' },
-  { to:'guardrails',   icon:'🛡', label:'Guardrails' },
-  { to:'policies',     icon:'📋', label:'Policies' },
-  { to:'templates',    icon:'📄', label:'Templates' },
-  { to:'webhooks',     icon:'🔔', label:'Webhooks' },
-  { to:'downstream',   icon:'🔀', label:'Downstream', minRole:'developer' },
+  { to:'playground',   icon:'▶',  label:'Playground',   trialOk: true },
+  { to:'integrations', icon:'⚡', label:'Integrations', trialOk: true },
+  { to:'guardrails',   icon:'🛡', label:'Guardrails',   trialOk: false },
+  { to:'policies',     icon:'📋', label:'Policies',     trialOk: false },
+  { to:'templates',    icon:'📄', label:'Templates',    trialOk: false },
+  { to:'webhooks',     icon:'🔔', label:'Webhooks',     trialOk: false },
+  { to:'downstream',   icon:'🔀', label:'Downstream',   trialOk: false, minRole:'developer' },
   null,
-  { to:'analytics',   icon:'📊', label:'Analytics' },
-  { to:'audit',        icon:'📜', label:'Audit log' },
-  { to:'gauntlet',     icon:'🎯', label:'Gauntlet',   minRole:'developer' },
+  { to:'analytics',    icon:'📊', label:'Analytics',    trialOk: false },
+  { to:'audit',        icon:'📜', label:'Audit log',    trialOk: false },
+  { to:'gauntlet',     icon:'🎯', label:'Gauntlet',     trialOk: false, minRole:'developer' },
   null,
-  { to:'members',      icon:'👥', label:'Members',  minRole:'administrator' },
-  { to:'api-keys',     icon:'🔑', label:'API keys', minRole:'developer' },
-  { to:'sso',          icon:'🔐', label:'SSO',      minRole:'administrator' },
-  { to:'billing',      icon:'💳', label:'Billing',  minRole:'administrator' },
-  { to:'settings',     icon:'⚙', label:'Settings', minRole:'administrator' },
+  { to:'members',      icon:'👥', label:'Members',      trialOk: false, minRole:'administrator' },
+  { to:'api-keys',     icon:'🔑', label:'API keys',     trialOk: true,  minRole:'developer' },
+  { to:'sso',          icon:'🔐', label:'SSO',          trialOk: false, minRole:'administrator' },
+  { to:'billing',      icon:'💳', label:'Billing',      trialOk: true,  minRole:'administrator' },
+  { to:'settings',     icon:'⚙', label:'Settings',     trialOk: false, minRole:'administrator' },
   null,
-  { to:'super-admin',  icon:'🛡️', label:'Super Admin', superuserOnly: true },
+  { to:'super-admin',  icon:'🛡️', label:'Super Admin',  trialOk: true, superuserOnly: true },
 ];
 
 const ROLE_COLORS = { user:'#378ADD', developer:'#BA7517', administrator:'#7F77DD' };
@@ -67,11 +70,18 @@ function useOnboardingProgress(orgId) {
   return progress;
 }
 
+// Routes accessible during an active free trial
+const TRIAL_ALLOWED = new Set(['playground', 'integrations', 'onboarding', 'billing']);
+// Routes accessible after trial expires (upgrade wall)
+const EXPIRED_ALLOWED = new Set(['billing']);
+
 export default function DashboardShell() {
   const { user, orgs, logout } = useAuth();
   const isSuperuser = user?.isSuperuser === true;
-  const { currentOrg, orgDetail, role, switchOrg, can } = useOrg();
+  const { currentOrg, orgDetail, role, switchOrg, can,
+          isFreePlan, isTrialActive, isTrialExpired, trialDaysLeft } = useOrg();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const progress = useOnboardingProgress(currentOrg?.org_id);
 
@@ -88,14 +98,38 @@ export default function DashboardShell() {
   });
 
   const isSuspended = orgDetail?.tenant_status === 'suspended';
+  const onTrial   = isTrialActive  && !isSuperuser;
+  const trialDead = isTrialExpired && !isSuperuser;
+
+  // Current route segment (e.g. "guardrails")
+  const routeSlug = location.pathname.replace('/dashboard/', '').split('/')[0];
+  // Is the current page accessible in the current trial state?
+  const pageLockedByTrial   = onTrial   && !TRIAL_ALLOWED.has(routeSlug);
+  const pageLockedByExpired = trialDead && !EXPIRED_ALLOWED.has(routeSlug);
 
   return (
     <div style={{ display:'flex', minHeight:'100vh', flexDirection:'column' }}>
-      {/* Suspended org warning banner */}
+      {/* Suspended banner */}
       {isSuspended && (
         <div style={{ background:'var(--c-red)', color:'#fff', padding:'8px 20px', fontSize:12, fontWeight:500, display:'flex', alignItems:'center', gap:8, zIndex:100, flexShrink:0 }}>
           <span>⚠️</span>
           <span>This organization has been <strong>suspended</strong>.{orgDetail.suspended_reason ? ` Reason: ${orgDetail.suspended_reason}.` : ''} Contact support to reactivate.</span>
+        </div>
+      )}
+
+      {/* Trial active banner */}
+      {onTrial && (
+        <div style={{ background:'#7F77DD', color:'#fff', padding:'7px 20px', fontSize:12, fontWeight:500, display:'flex', alignItems:'center', justifyContent:'space-between', zIndex:100, flexShrink:0 }}>
+          <span>🧪 Free trial — <strong>{trialDaysLeft} day{trialDaysLeft !== 1 ? 's' : ''}</strong> remaining. Playground and Integrations are available now.</span>
+          <NavLink to="/dashboard/billing" style={{ color:'#fff', fontWeight:600, fontSize:12, textDecoration:'underline', whiteSpace:'nowrap', marginLeft:16 }}>Upgrade →</NavLink>
+        </div>
+      )}
+
+      {/* Trial expired banner */}
+      {trialDead && (
+        <div style={{ background:'#E04E4E', color:'#fff', padding:'7px 20px', fontSize:12, fontWeight:500, display:'flex', alignItems:'center', justifyContent:'space-between', zIndex:100, flexShrink:0 }}>
+          <span>⏰ Your free trial has expired. Upgrade to continue using PromptSense.</span>
+          <NavLink to="/dashboard/billing" style={{ color:'#fff', fontWeight:600, fontSize:12, textDecoration:'underline', whiteSpace:'nowrap', marginLeft:16 }}>Upgrade now →</NavLink>
         </div>
       )}
       <div style={{ display:'flex', flex:1 }}>
@@ -161,8 +195,27 @@ export default function DashboardShell() {
             if (!item) return <div key={i} style={{ height:1, background:'var(--c-border)', margin:'6px 16px' }} />;
             if (item.minRole && !can(item.minRole) && !isSuperuser) return null;
             if (item.superuserOnly && !isSuperuser) return null;
-            // Hide "Get started" once onboarding progress is gone
             if (item.onboardingOnly && !progress) return null;
+
+            // Determine if this item is locked by trial
+            const lockedByTrial   = onTrial   && !item.trialOk;
+            const lockedByExpired = trialDead && !item.trialOk;
+            const locked = lockedByTrial || lockedByExpired;
+
+            if (locked) {
+              // Show a greyed-out, non-clickable row so users see what they're missing
+              return (
+                <div key={item.to} title="Upgrade to unlock"
+                  style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 16px', fontSize:13,
+                            color:'var(--c-text3)', borderRadius:'var(--radius)', margin:'1px 8px',
+                            cursor:'not-allowed', opacity:0.55, userSelect:'none' }}>
+                  <span style={{ fontSize:14, lineHeight:1, width:16, textAlign:'center' }}>{item.icon}</span>
+                  {item.label}
+                  <span style={{ marginLeft:'auto', fontSize:10 }}>🔒</span>
+                </div>
+              );
+            }
+
             return (
               <NavLink key={item.to} to={`/dashboard/${item.to}`} style={linkStyle}>
                 <span style={{ fontSize:14, lineHeight:1, width:16, textAlign:'center' }}>{item.icon}</span>

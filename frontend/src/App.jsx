@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import { useOrg } from './context/OrgContext';
 import { Spinner } from './components/UI';
 
 // Auth pages
@@ -49,6 +50,35 @@ function RequireGuest({ children }) {
   return children;
 }
 
+// Pages accessible during an active free trial
+const TRIAL_ALLOWED = new Set(['playground', 'integrations', 'onboarding', 'billing', 'api-keys']);
+// Pages accessible after trial expires (upgrade wall — only billing)
+const EXPIRED_ALLOWED = new Set(['billing']);
+
+/**
+ * TrialGate — wraps individual dashboard routes.
+ * Redirects to /dashboard/billing when the page is locked by trial status.
+ * Superusers and paid plans pass through unconditionally.
+ */
+function TrialGate({ slug, children }) {
+  const { user } = useAuth();
+  const { isTrialActive, isTrialExpired, orgDetail } = useOrg();
+  const isSuperuser = user?.isSuperuser === true;
+
+  if (isSuperuser) return children;
+  if (!orgDetail)  return children;          // still loading — let it through
+  if (orgDetail.is_paid || orgDetail.subscription_status === 'active') return children;
+  if (orgDetail.plan_name !== 'starter') return children;
+
+  if (isTrialExpired && !EXPIRED_ALLOWED.has(slug)) {
+    return <Navigate to="/dashboard/billing" replace />;
+  }
+  if (isTrialActive && !TRIAL_ALLOWED.has(slug)) {
+    return <Navigate to="/dashboard/billing" replace />;
+  }
+  return children;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -67,22 +97,24 @@ export default function App() {
       {/* Dashboard — all children protected */}
       <Route path="/dashboard/*" element={<RequireAuth><DashboardShell /></RequireAuth>}>
         <Route index element={<Navigate to="onboarding" replace />} />
+        {/* Always accessible */}
         <Route path="onboarding"   element={<Onboarding />} />
         <Route path="playground"   element={<Playground />} />
         <Route path="integrations" element={<Integrations />} />
-        <Route path="guardrails"   element={<Guardrails />} />
-        <Route path="policies"     element={<Policies />} />
-        <Route path="templates"    element={<Templates />} />
-        <Route path="webhooks"     element={<Webhooks />} />
-        <Route path="analytics"    element={<Analytics />} />
-        <Route path="audit"        element={<AuditLog />} />
-        <Route path="members"      element={<Members />} />
         <Route path="billing"      element={<Billing />} />
-        <Route path="settings"     element={<Settings />} />
         <Route path="api-keys"     element={<ApiKeys />} />
-        <Route path="gauntlet"     element={<Gauntlet />} />
-        <Route path="downstream"   element={<Downstream />} />
-        <Route path="sso"          element={<SSO />} />
+        {/* Locked during free trial */}
+        <Route path="guardrails"   element={<TrialGate slug="guardrails"><Guardrails /></TrialGate>} />
+        <Route path="policies"     element={<TrialGate slug="policies"><Policies /></TrialGate>} />
+        <Route path="templates"    element={<TrialGate slug="templates"><Templates /></TrialGate>} />
+        <Route path="webhooks"     element={<TrialGate slug="webhooks"><Webhooks /></TrialGate>} />
+        <Route path="analytics"    element={<TrialGate slug="analytics"><Analytics /></TrialGate>} />
+        <Route path="audit"        element={<TrialGate slug="audit"><AuditLog /></TrialGate>} />
+        <Route path="members"      element={<TrialGate slug="members"><Members /></TrialGate>} />
+        <Route path="settings"     element={<TrialGate slug="settings"><Settings /></TrialGate>} />
+        <Route path="gauntlet"     element={<TrialGate slug="gauntlet"><Gauntlet /></TrialGate>} />
+        <Route path="downstream"   element={<TrialGate slug="downstream"><Downstream /></TrialGate>} />
+        <Route path="sso"          element={<TrialGate slug="sso"><SSO /></TrialGate>} />
         <Route path="super-admin"  element={<SuperAdmin />} />
       </Route>
 

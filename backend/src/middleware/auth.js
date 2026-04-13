@@ -42,8 +42,10 @@ async function loadOrg(req, res, next) {
   if (req.isSuperuser) {
     const { rows: orgRows } = await query(
       `SELECT o.id as org_id, o.name as org_name, o.slug, o.plan_id,
-              o.subscription_status, o.trial_ends_at, o.tenant_status, o.deleted_at,
+              o.subscription_status, o.tenant_status, o.deleted_at,
               o.primary_color, o.logo_url, o.custom_domain, o.timezone,
+              (o.created_at + INTERVAL '7 days') AS trial_ends_at,
+              (o.subscription_status = 'active')  AS is_paid,
               p.name as plan_name, p.requests_per_month,
               p.members_limit, p.guardrails_limit, p.webhooks_limit
        FROM organizations o JOIN plans p ON p.id = o.plan_id
@@ -60,8 +62,10 @@ async function loadOrg(req, res, next) {
 
   const { rows } = await query(
     `SELECT m.role, m.active, o.id as org_id, o.name as org_name, o.slug, o.plan_id,
-            o.subscription_status, o.trial_ends_at, o.tenant_status, o.deleted_at,
+            o.subscription_status, o.tenant_status, o.deleted_at,
             o.primary_color, o.logo_url, o.custom_domain, o.timezone,
+            (o.created_at + INTERVAL '7 days') AS trial_ends_at,
+            (o.subscription_status = 'active')  AS is_paid,
             p.name as plan_name, p.requests_per_month,
             p.members_limit, p.guardrails_limit, p.webhooks_limit
      FROM memberships m
@@ -108,6 +112,55 @@ function requireSuperuser(req, res, next) {
   next();
 }
 
+/**
+ * Trial access gate — call AFTER loadOrg.
+ *
+ * requireTrialAccess()                   → blocked during trial AND after expiry
+ * requireTrialAccess({ trial: true })    → allowed during active trial, blocked after expiry
+ *
+ * Rules:
+ *  - Superusers:        always pass
+ *  - Paid subscription: always pass
+ *  - Free plan, trial active   + trial:true  → pass
+ *  - Free plan, trial active   + trial:false → 403 TRIAL_RESTRICTED
+ *  - Free plan, trial expired  (any)         → 402 TRIAL_EXPIRED
+ */
+function requireTrialAccess({ trial = false } = {}) {
+  return (req, res, next) => {
+    if (req.isSuperuser) return next();
+    if (req.apiKeyAuth)  return next(); // API-key callers bypass trial gate
+
+    const org = req.org;
+    if (!org) return next(); // loadOrg didn't run — let other middleware handle it
+
+    // Paid subscription — full access regardless of plan label
+    if (org.is_paid || org.subscription_status === 'active') return next();
+
+    // Not on starter → full access (enterprise plan, etc.)
+    if (org.plan_name !== 'starter') return next();
+
+    // Check trial window
+    const trialEnd = org.trial_ends_at ? new Date(org.trial_ends_at) : null;
+    const trialActive = trialEnd && trialEnd > new Date();
+
+    if (!trialActive) {
+      return res.status(402).json({
+        error: 'Your 7-day free trial has expired. Please upgrade your plan to continue.',
+        code: 'TRIAL_EXPIRED',
+      });
+    }
+
+    if (!trial) {
+      return res.status(403).json({
+        error: 'This feature is not available during the free trial. Upgrade to unlock it.',
+        code: 'TRIAL_RESTRICTED',
+      });
+    }
+
+    next();
+  };
+}
+
 // API key auth (for SDK proxy requests)
 async function authenticateApiKey(req, res, next) {
   const key = req.headers['x-promptsense-key'];
@@ -132,4 +185,4 @@ async function authenticateApiKey(req, res, next) {
   next();
 }
 
-module.exports = { authenticate, loadOrg, requireRole, requireSuperuser, authenticateApiKey };
+module.exports = { authenticate, loadOrg, requireRole, requireSuperuser, requireTrialAccess, authenticateApiKey };
