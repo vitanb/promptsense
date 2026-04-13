@@ -33,8 +33,12 @@ const NAV = [
 
 const ROLE_COLORS = { user:'#378ADD', developer:'#BA7517', administrator:'#7F77DD' };
 
-/** Lightweight hook: checks how many onboarding steps are done */
-function useOnboardingProgress(orgId) {
+/**
+ * Lightweight hook: checks how many onboarding steps are done.
+ * During a free trial, guardrails are blocked (403), so we skip that API
+ * call and count it as incomplete — no console noise, no failed requests.
+ */
+function useOnboardingProgress(orgId, isTrialUser = false) {
   const [progress, setProgress] = useState(null); // null = loading
 
   useEffect(() => {
@@ -46,26 +50,32 @@ function useOnboardingProgress(orgId) {
     }
 
     let cancelled = false;
+
+    // Skip guardrails fetch during trial — it would 403 and pollute the console
+    const guardrailsPromise = isTrialUser
+      ? Promise.resolve({ status: 'skipped', value: [] })
+      : configApi.guardrails(orgId).then(v => ({ status: 'fulfilled', value: v })).catch(() => ({ status: 'rejected' }));
+
     Promise.allSettled([
       orgApi.providers(orgId),
-      configApi.guardrails(orgId),
       orgApi.apiKeys(orgId),
-    ]).then(([providers, guardrails, keys]) => {
-      if (cancelled) return;
-      const steps = [
-        providers.status === 'fulfilled' && providers.value?.length > 0,
-        guardrails.status === 'fulfilled' && guardrails.value?.length > 0,
-        Boolean(localStorage.getItem(`ps_playground_${orgId}`)),
-        keys.status === 'fulfilled' && keys.value?.length > 0,
-      ];
-      const done = steps.filter(Boolean).length;
-      // Hide banner once all done
-      if (done === steps.length) { setProgress(null); return; }
-      setProgress({ done, total: steps.length });
+    ]).then(([providers, keys]) => {
+      guardrailsPromise.then(guardrails => {
+        if (cancelled) return;
+        const steps = [
+          providers.status === 'fulfilled' && providers.value?.length > 0,
+          !isTrialUser && guardrails.value?.length > 0,   // always false on trial → stays as a goal
+          Boolean(localStorage.getItem(`ps_playground_${orgId}`)),
+          keys.status === 'fulfilled' && keys.value?.length > 0,
+        ];
+        const done = steps.filter(Boolean).length;
+        if (done === steps.length) { setProgress(null); return; }
+        setProgress({ done, total: steps.length });
+      });
     }).catch(() => setProgress(null));
 
     return () => { cancelled = true; };
-  }, [orgId]);
+  }, [orgId, isTrialUser]);
 
   return progress;
 }
@@ -83,9 +93,13 @@ export default function DashboardShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const progress = useOnboardingProgress(currentOrg?.org_id);
-
   const handleLogout = async () => { await logout(); navigate('/auth/login'); };
+
+  const isSuspended = orgDetail?.tenant_status === 'suspended';
+  const onTrial   = isTrialActive  && !isSuperuser;
+  const trialDead = isTrialExpired && !isSuperuser;
+
+  const progress = useOnboardingProgress(currentOrg?.org_id, onTrial || trialDead);
 
   const sidebarStyle = { width:220, minHeight:'100vh', background:'var(--c-bg2)', borderRight:'0.5px solid var(--c-border)', display:'flex', flexDirection:'column', flexShrink:0 };
   const linkStyle = ({ isActive }) => ({
@@ -96,10 +110,6 @@ export default function DashboardShell() {
     fontWeight: isActive ? 500 : 400, textDecoration:'none',
     transition:'background 0.1s',
   });
-
-  const isSuspended = orgDetail?.tenant_status === 'suspended';
-  const onTrial   = isTrialActive  && !isSuperuser;
-  const trialDead = isTrialExpired && !isSuperuser;
 
   // Current route segment (e.g. "guardrails")
   const routeSlug = location.pathname.replace('/dashboard/', '').split('/')[0];

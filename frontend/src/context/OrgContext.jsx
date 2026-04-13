@@ -61,8 +61,6 @@ export function OrgProvider({ children }) {
   const isTrialActive  = isFreePlan && trialMsLeft > 0;
   const isTrialExpired = isFreePlan && trialMsLeft <= 0;
 
-  // DEBUG — remove after confirming banner works
-  if (orgDetail) console.log('[Trial]', { isSuperuser, plan: orgDetail.plan_name, is_paid: orgDetail.is_paid, trial_ends_at: orgDetail.trial_ends_at, isFreePlan, isTrialActive, isTrialExpired, trialDaysLeft });
 
   return (
     <OrgContext.Provider value={{

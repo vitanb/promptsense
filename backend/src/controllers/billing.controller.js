@@ -46,6 +46,10 @@ async function getBilling(req, res) {
 
 // POST /orgs/:orgId/billing/checkout
 async function createCheckout(req, res) {
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return res.status(503).json({ error: 'Billing is not configured on this server. Add STRIPE_SECRET_KEY to your environment variables.' });
+  }
+
   const { planName, interval = 'monthly' } = req.body;
   const { rows: [plan] } = await query('SELECT * FROM plans WHERE name=$1', [planName]);
   if (!plan) return res.status(400).json({ error: 'Invalid plan' });
@@ -64,14 +68,19 @@ async function createCheckout(req, res) {
     ? process.env[`STRIPE_PRICE_${planName.toUpperCase()}_YEARLY`]
     : process.env[`STRIPE_PRICE_${planName.toUpperCase()}`];
 
-  if (!priceId) return res.status(400).json({ error: 'Stripe price not configured for this plan' });
+  if (!priceId) {
+    return res.status(400).json({
+      error: `Stripe price not configured for the "${planName}" plan. Add STRIPE_PRICE_${planName.toUpperCase()} to your Render environment variables.`,
+    });
+  }
 
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
     line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${process.env.FRONTEND_URL}/dashboard/${org.slug}/billing?success=1`,
-    cancel_url: `${process.env.FRONTEND_URL}/dashboard/${org.slug}/billing`,
+    success_url: `${frontendUrl}/dashboard/billing?success=1`,
+    cancel_url:  `${frontendUrl}/dashboard/billing`,
     metadata: { org_id: req.orgId, plan_name: planName },
     subscription_data: { metadata: { org_id: req.orgId } },
     allow_promotion_codes: true,
@@ -82,12 +91,17 @@ async function createCheckout(req, res) {
 
 // POST /orgs/:orgId/billing/portal
 async function createPortal(req, res) {
-  const { rows: [org] } = await query('SELECT stripe_customer_id, slug FROM organizations WHERE id=$1', [req.orgId]);
-  if (!org?.stripe_customer_id) return res.status(400).json({ error: 'No billing account found' });
+  if (!process.env.STRIPE_SECRET_KEY) {
+    return res.status(503).json({ error: 'Billing is not configured on this server.' });
+  }
 
+  const { rows: [org] } = await query('SELECT stripe_customer_id FROM organizations WHERE id=$1', [req.orgId]);
+  if (!org?.stripe_customer_id) return res.status(400).json({ error: 'No billing account found. Please complete a checkout first.' });
+
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '');
   const session = await stripe.billingPortal.sessions.create({
     customer: org.stripe_customer_id,
-    return_url: `${process.env.FRONTEND_URL}/dashboard/${org.slug}/billing`,
+    return_url: `${frontendUrl}/dashboard/billing`,
   });
 
   res.json({ url: session.url });
