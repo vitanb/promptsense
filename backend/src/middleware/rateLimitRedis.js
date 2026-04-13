@@ -1,25 +1,22 @@
 /**
- * Redis-backed sliding-window rate limiter for multi-replica production.
+ * Sliding-window rate limiter — Redis-backed in production, in-memory fallback
+ * for local dev or when REDIS_URL is not set.
  *
- * Replaces the in-memory Map-based limiter in validate.js, which only works
- * correctly on a single Node.js process. In ECS Fargate with multiple replicas,
- * each task has its own memory — use this file instead.
- *
- * Usage: set REDIS_URL in the environment. If REDIS_URL is absent, the module
- * falls back to the in-memory limiter so local dev still works without Redis.
+ * Set REDIS_URL in your environment to enable the Redis-backed limiter.
+ * If REDIS_URL is absent the module falls back to an in-memory Map so the
+ * app still works without Redis.
  */
 
-const { query } = require('../db/pool');
-const logger    = require('../utils/logger');
+const logger = require('../utils/logger');
 
-// ── Plan → requests-per-minute limits (mirrors validate.js) ──────────────────
+// ── Plan → requests-per-minute caps ──────────────────────────────────────────
 const PLAN_RPM = {
   starter:    30,
   pro:        120,
   enterprise: 600,
 };
 
-// ── Lazy-init Redis client ────────────────────────────────────────────────────
+// ── Redis client (lazy-init) ──────────────────────────────────────────────────
 let redisClient = null;
 let useRedis    = false;
 
@@ -28,7 +25,7 @@ async function getRedis() {
 
   const url = process.env.REDIS_URL;
   if (!url) {
-    logger.warn('REDIS_URL not set — using in-memory rate limiter (not suitable for multi-replica)');
+    logger.info('REDIS_URL not set — using in-memory rate limiter');
     return null;
   }
 
@@ -36,38 +33,37 @@ async function getRedis() {
     const Redis = require('ioredis');
     const client = new Redis(url, {
       tls:                  url.startsWith('rediss://') ? {} : undefined,
-      maxRetriesPerRequest: 3,
-      enableReadyCheck:     true,
+      maxRetriesPerRequest: 0,    // fail fast — no retry loops
+      enableReadyCheck:     false,
       lazyConnect:          true,
-      // Stop ioredis from retrying forever if Redis is unavailable
-      retryStrategy: (times) => (times > 3 ? null : Math.min(times * 200, 2000)),
+      retryStrategy:        () => null, // don't auto-reconnect; fall back to memory
     });
 
-    // MUST attach an error handler — without it Node throws an unhandled
-    // error event which can crash the process or block all requests.
+    // Attach error handler BEFORE connect() to prevent unhandled 'error' events
+    // which would crash the Node process.
     client.on('error', (err) => {
-      logger.error('Redis client error — rate limiter will fall back to in-memory', { error: err.message });
-      // If the connection is lost after initial connect, disable Redis limiter
-      // so the in-memory fallback takes over on the next request.
-      useRedis = false;
+      logger.warn('Redis error — falling back to in-memory rate limiter', { error: err.message });
+      useRedis   = false;
       redisClient = null;
+      try { client.disconnect(); } catch (_) {}
     });
 
     await client.connect();
     redisClient = client;
-    useRedis = true;
+    useRedis    = true;
     logger.info('Redis rate limiter connected');
     return redisClient;
   } catch (err) {
-    logger.error('Redis connection failed — falling back to in-memory limiter', { error: err.message });
+    logger.warn('Redis connection failed — using in-memory rate limiter', { error: err.message });
     redisClient = null;
-    useRedis = false;
+    useRedis    = false;
     return null;
   }
 }
 
-// ── In-memory fallback (single-process only) ──────────────────────────────────
+// ── In-memory fallback ────────────────────────────────────────────────────────
 const MEM_WINDOWS = new Map(); // orgId → [timestamp, ...]
+
 setInterval(() => {
   const cutoff = Date.now() - 60_000;
   for (const [key, arr] of MEM_WINDOWS.entries()) {
@@ -87,53 +83,44 @@ function memCheck(orgId, limit) {
   return true;
 }
 
-// ── Redis sliding-window check (Lua script for atomicity) ────────────────────
+// ── Redis sliding-window check (Lua for atomicity) ────────────────────────────
 const SLIDING_WINDOW_SCRIPT = `
 local key    = KEYS[1]
 local now    = tonumber(ARGV[1])
-local window = tonumber(ARGV[2])   -- milliseconds
+local window = tonumber(ARGV[2])
 local limit  = tonumber(ARGV[3])
-
--- Remove entries older than the window
 redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
-
 local count = redis.call('ZCARD', key)
-if count >= limit then
-  return 0
-end
-
--- Add this request; use unique member to avoid score collisions
+if count >= limit then return 0 end
 redis.call('ZADD', key, now, now .. '-' .. math.random(1, 1000000))
 redis.call('PEXPIRE', key, window)
-
 return 1
 `;
 
 async function redisCheck(client, orgId, limit) {
   try {
     const result = await client.eval(
-      SLIDING_WINDOW_SCRIPT,
-      1,                         // number of KEYS
-      `rl:${orgId}`,             // KEYS[1]
-      Date.now().toString(),     // ARGV[1] = now (ms)
-      '60000',                   // ARGV[2] = 60-second window
-      limit.toString()           // ARGV[3] = limit
+      SLIDING_WINDOW_SCRIPT, 1,
+      `rl:${orgId}`,
+      Date.now().toString(),
+      '60000',
+      limit.toString()
     );
     return result === 1;
   } catch (err) {
     logger.error('Redis rate-limit check failed — allowing request', { error: err.message });
-    return true; // fail open rather than blocking all traffic on Redis hiccup
+    return true; // fail open
   }
 }
 
-// ── Exported middleware factory ───────────────────────────────────────────────
+// ── Middleware ────────────────────────────────────────────────────────────────
 async function perOrgRateLimit(req, res, next) {
   try {
-    const orgId = req.orgId;
-    const plan  = req.org?.plan_name || 'starter';
-    const limit = PLAN_RPM[plan] ?? PLAN_RPM.starter;
+    const orgId  = req.orgId;
+    const plan   = req.org?.plan_name || 'starter';
+    const limit  = PLAN_RPM[plan] ?? PLAN_RPM.starter;
+    const client = await getRedis();
 
-    const client  = await getRedis();
     const allowed = client
       ? await redisCheck(client, orgId, limit)
       : memCheck(orgId, limit);
