@@ -262,12 +262,15 @@ export function Members() {
 
 // ── BILLING ───────────────────────────────────────────────────────────────────
 export function Billing() {
-  const { currentOrg, orgDetail } = useOrg();
+  const { currentOrg } = useOrg();
   const orgId = currentOrg?.org_id;
   const [data, setData] = useState(null);
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(null); // planName being checked out
+  const [checkoutError, setCheckoutError] = useState('');
+  const [stripeUnconfigured, setStripeUnconfigured] = useState(false);
 
   useEffect(() => {
     if (!orgId) return;
@@ -279,14 +282,42 @@ export function Billing() {
 
   const openPortal = async () => {
     setPortalLoading(true);
-    try { const { url } = await billingApi.portal(orgId); window.location.href = url; }
-    catch (e) { alert('Could not open billing portal. Please try again.'); }
-    finally { setPortalLoading(false); }
+    setCheckoutError('');
+    try {
+      const { url } = await billingApi.portal(orgId);
+      window.location.href = url;
+    } catch (e) {
+      const msg = e.response?.data?.error || 'Could not open billing portal. Please try again.';
+      setCheckoutError(msg);
+      if (e.response?.status === 503) setStripeUnconfigured(true);
+    } finally {
+      setPortalLoading(false);
+    }
   };
 
   const checkout = async (planName) => {
-    try { const { url } = await billingApi.checkout(orgId, { planName }); window.location.href = url; }
-    catch (e) { alert(e.response?.data?.error || 'Checkout failed'); }
+    setCheckoutError('');
+    setStripeUnconfigured(false);
+    setCheckoutLoading(planName);
+    try {
+      const { url } = await billingApi.checkout(orgId, { planName });
+      window.location.href = url;
+    } catch (e) {
+      const status = e.response?.status;
+      const msg    = e.response?.data?.error;
+
+      if (status === 503) {
+        // Stripe not configured on the server at all
+        setStripeUnconfigured(true);
+        setCheckoutError(msg || 'Billing is not configured on this server.');
+      } else if (status === 400) {
+        setCheckoutError(msg || 'This plan is not available for purchase yet.');
+      } else {
+        setCheckoutError(msg || 'Checkout failed. Please try again or contact support.');
+      }
+    } finally {
+      setCheckoutLoading(null);
+    }
   };
 
   if (loading) return <div style={{ display:'flex', justifyContent:'center', padding:'4rem' }}><Spinner /></div>;
@@ -297,6 +328,40 @@ export function Billing() {
   return (
     <div>
       <PageHeader title="Billing" description="Manage your subscription and payment details." />
+
+      {/* Stripe not configured — admin setup instructions */}
+      {stripeUnconfigured && (
+        <div style={{ marginBottom:'1.5rem', padding:'16px 18px', borderRadius:'var(--radius)', background:'#FFF7ED',
+                      border:'0.5px solid #F59E0B', color:'#92400E' }}>
+          <div style={{ fontWeight:600, marginBottom:6, fontSize:13 }}>⚠️ Stripe is not configured</div>
+          <div style={{ fontSize:12, lineHeight:1.6 }}>
+            To enable paid plan upgrades, add the following environment variables to your Render backend service:
+          </div>
+          <pre style={{ fontSize:11, marginTop:8, padding:'10px 12px', background:'#FEF3C7', borderRadius:4,
+                        overflowX:'auto', lineHeight:1.7 }}>
+{`STRIPE_SECRET_KEY        = sk_live_...
+STRIPE_PRICE_GROWTH      = price_...   (Growth plan price ID from Stripe)
+STRIPE_PRICE_ENTERPRISE  = price_...   (Enterprise plan price ID from Stripe)
+STRIPE_WEBHOOK_SECRET    = whsec_...   (from Stripe webhook settings)`}
+          </pre>
+          <div style={{ fontSize:11, marginTop:8, color:'#92400E' }}>
+            Find these in your{' '}
+            <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noreferrer"
+               style={{ color:'#92400E', fontWeight:600 }}>Stripe dashboard → API keys</a>
+            {' '}and{' '}
+            <a href="https://dashboard.stripe.com/products" target="_blank" rel="noreferrer"
+               style={{ color:'#92400E', fontWeight:600 }}>Products → Prices</a>.
+          </div>
+        </div>
+      )}
+
+      {/* Inline checkout error (non-503) */}
+      {checkoutError && !stripeUnconfigured && (
+        <div style={{ marginBottom:'1.5rem', padding:'12px 16px', borderRadius:'var(--radius)',
+                      background:'var(--c-red)10', border:'0.5px solid var(--c-red)44', color:'var(--c-red)', fontSize:13 }}>
+          {checkoutError}
+        </div>
+      )}
 
       <div style={{ display:'flex', gap:10, marginBottom:'1.5rem' }}>
         <MetricCard label="Current plan" value={org?.display_name || org?.plan_name || '—'} sub={org?.subscription_status} />
@@ -328,7 +393,11 @@ export function Billing() {
                   {features.map(f=><li key={f} style={{ fontSize:11, color:'var(--c-text2)' }}>✓ {f}</li>)}
                 </ul>
                 {!isCurrent && plan.name!=='enterprise' && plan.price_monthly>0 && (
-                  <Btn size="sm" style={{ width:'100%', justifyContent:'center' }} onClick={()=>checkout(plan.name)}>Upgrade</Btn>
+                  <Btn size="sm" loading={checkoutLoading === plan.name}
+                       style={{ width:'100%', justifyContent:'center' }}
+                       onClick={() => checkout(plan.name)}>
+                    Upgrade
+                  </Btn>
                 )}
                 {plan.name==='enterprise' && !isCurrent && (
                   <a href="mailto:sales@promptsense.io" style={{ display:'block', textAlign:'center', fontSize:12, padding:'5px', color:'var(--c-purple)' }}>Contact sales</a>
