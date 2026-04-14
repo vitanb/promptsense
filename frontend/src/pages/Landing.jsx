@@ -2,20 +2,20 @@ import { Link } from 'react-router-dom';
 
 const FEATURES = [
   { icon:'🛡', title:'10 built-in guardrails', desc:'PII, injection, toxicity, secrets, hallucination checks — active the moment you connect.' },
-  { icon:'⚡', title:'6 LLM providers', desc:'Anthropic, OpenAI, Azure, Gemini, Mistral, Cohere — or bring your own via custom endpoint.' },
+  { icon:'⚡', title:'32 LLM providers', desc:'Anthropic, OpenAI, Gemini, Groq, Mistral, Bedrock, Ollama, and 25 more — or bring your own via custom endpoint.' },
   { icon:'📊', title:'Real-time analytics', desc:'Pass rates, flag distribution, provider latency, cost tracking — all in one live dashboard.' },
   { icon:'🔔', title:'Webhook alerts', desc:'Fire to Slack, PagerDuty, or any HTTP endpoint the instant a prompt is blocked or flagged.' },
   { icon:'👥', title:'Team RBAC', desc:'User, Developer, Administrator roles. Granular permission gating so the right people have the right access.' },
   { icon:'📜', title:'Immutable audit log', desc:'Every prompt, response, and guardrail decision captured — exportable to CSV for compliance review.' },
 ];
 
-const LOGOS = ['Anthropic', 'OpenAI', 'Azure OpenAI', 'Gemini', 'Mistral', 'Cohere'];
+const LOGOS = ['Anthropic', 'OpenAI', 'Azure OpenAI', 'Google Gemini', 'Mistral', 'Groq', 'AWS Bedrock', 'DeepSeek', 'xAI / Grok', 'Cohere', 'Ollama', 'NVIDIA NIM'];
 
 const HOW_IT_WORKS = [
   {
     step: '01',
     title: 'Connect your LLM provider',
-    desc: 'Paste your existing API key for Anthropic, OpenAI, Azure, or any of our supported providers. Encrypted at rest with AES-256-GCM.',
+    desc: 'Paste your existing API key for any of 32 supported providers — Anthropic, OpenAI, Groq, Gemini, Bedrock, Mistral, Ollama, and more. Encrypted at rest with AES-256-GCM.',
   },
   {
     step: '02',
@@ -113,7 +113,7 @@ export default function Landing() {
           {[
             { num:'< 5 ms', label:'Guardrail overhead' },
             { num:'10', label:'Built-in guardrail types' },
-            { num:'6', label:'LLM providers' },
+            { num:'32', label:'LLM providers' },
             { num:'99.9%', label:'Uptime SLA (Enterprise)' },
           ].map(s => (
             <div key={s.label} style={{ padding:'1rem' }}>
