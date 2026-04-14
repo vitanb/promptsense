@@ -158,40 +158,151 @@ async function proxyPrompt(req, res) {
   // ── Step 4: Call LLM provider ──────────────────────────────────────────────
   if (raw === null) {
     try {
+      // ── Shared helpers ────────────────────────────────────────────────────
+
+      // OpenAI-compatible: works for OpenAI, Azure, Groq, Mistral, Together,
+      // Fireworks, Perplexity, DeepSeek, xAI, AI21, Cohere (v2), GitHub Models,
+      // Cloudflare AI, Ollama, LiteLLM, HuggingFace TGI, OpenRouter, AI/ML API, etc.
+      const openaiCompat = async (endpointUrl, authHeader) => {
+        // Substitute {model} in URL (used by HuggingFace, Gemini, etc.)
+        const url = (endpointUrl || '').replace('{model}', conn.model || '');
+        const headers = { 'Content-Type': 'application/json', ...authHeader };
+        const body = {
+          model:      conn.model || undefined,
+          max_tokens: conn.max_tokens || 1000,
+          messages: [
+            ...(conn.system_prompt ? [{ role: 'system', content: conn.system_prompt }] : []),
+            { role: 'user', content: prompt },
+          ],
+        };
+        const r = await axios.post(url, body, { headers });
+        return r.data?.choices?.[0]?.message?.content || '';
+      };
+
+      // AWS Signature V4 signer (pure Node.js crypto — no SDK needed)
+      const awsSign = (method, service, region, host, path, body, accessKey, secretKey) => {
+        const crypto = require('crypto');
+        const now    = new Date();
+        const amzDate   = now.toISOString().replace(/[:-]|\.\d{3}/g, '').slice(0, 15) + 'Z';
+        const dateStamp = amzDate.slice(0, 8);
+        const bodyHash  = crypto.createHash('sha256').update(body).digest('hex');
+        const canonReq  = [method, path, '', `content-type:application/json\nhost:${host}\nx-amz-date:${amzDate}\n`, 'content-type;host;x-amz-date', bodyHash].join('\n');
+        const credScope = `${dateStamp}/${region}/${service}/aws4_request`;
+        const strToSign = `AWS4-HMAC-SHA256\n${amzDate}\n${credScope}\n${crypto.createHash('sha256').update(canonReq).digest('hex')}`;
+        const hmac = (k, d) => crypto.createHmac('sha256', k).update(d).digest();
+        const sigKey = hmac(hmac(hmac(hmac(`AWS4${secretKey}`, dateStamp), region), service), 'aws4_request');
+        const sig    = crypto.createHmac('sha256', sigKey).update(strToSign).digest('hex');
+        const auth   = `AWS4-HMAC-SHA256 Credential=${accessKey}/${credScope}, SignedHeaders=content-type;host;x-amz-date, Signature=${sig}`;
+        return { 'Authorization': auth, 'x-amz-date': amzDate, 'Content-Type': 'application/json' };
+      };
+
+      // ── Provider dispatch table ───────────────────────────────────────────
       const PROVIDER_CALLS = {
+
+        // Native Anthropic Messages API
         anthropic: async () => {
-          const r = await axios.post(conn.endpoint_url || 'https://api.anthropic.com/v1/messages', {
-            model: conn.model || 'claude-sonnet-4-20250514',
-            max_tokens: conn.max_tokens || 1000,
-            system: conn.system_prompt || 'You are a helpful assistant.',
-            messages: [{ role: 'user', content: prompt }],
-          }, { headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } });
+          const r = await axios.post(
+            conn.endpoint_url || 'https://api.anthropic.com/v1/messages',
+            { model: conn.model || 'claude-sonnet-4-20250514', max_tokens: conn.max_tokens || 1000,
+              system: conn.system_prompt || 'You are a helpful assistant.',
+              messages: [{ role: 'user', content: prompt }] },
+            { headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } }
+          );
           return r.data?.content?.find(b => b.type === 'text')?.text || '';
         },
-        openai: async () => {
-          const r = await axios.post(conn.endpoint_url || 'https://api.openai.com/v1/chat/completions', {
-            model: conn.model || 'gpt-4o',
-            max_tokens: conn.max_tokens || 1000,
-            messages: [{ role: 'system', content: conn.system_prompt || '' }, { role: 'user', content: prompt }],
-          }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-          return r.data?.choices?.[0]?.message?.content || '';
-        },
+
+        // Google Gemini (native generateContent API)
         gemini: async () => {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${conn.model || 'gemini-1.5-pro'}:generateContent`;
-          const r = await axios.post(url, {
+          const model = conn.model || 'gemini-2.0-flash';
+          const url   = (conn.endpoint_url || `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`).replace('{model}', model);
+          const systemParts = conn.system_prompt ? [{ text: conn.system_prompt }] : [];
+          const body = {
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: { maxOutputTokens: conn.max_tokens || 1000 },
-          }, { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey } });
+            ...(systemParts.length ? { systemInstruction: { parts: systemParts } } : {}),
+          };
+          const r = await axios.post(url, body, { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey } });
           return r.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
         },
-        mistral: async () => {
-          const r = await axios.post(conn.endpoint_url || 'https://api.mistral.ai/v1/chat/completions', {
-            model: conn.model || 'mistral-large-latest',
-            max_tokens: conn.max_tokens || 1000,
-            messages: [{ role: 'system', content: conn.system_prompt || '' }, { role: 'user', content: prompt }],
-          }, { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } });
-          return r.data?.choices?.[0]?.message?.content || '';
+
+        // Cohere Chat API (native v1 format)
+        cohere: async () => {
+          const r = await axios.post(
+            conn.endpoint_url || 'https://api.cohere.com/v1/chat',
+            { model: conn.model || 'command-r-plus', max_tokens: conn.max_tokens || 1000,
+              message: prompt,
+              ...(conn.system_prompt ? { preamble: conn.system_prompt } : {}) },
+            { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` } }
+          );
+          return r.data?.text || '';
         },
+
+        // Replicate (predictions API)
+        replicate: async () => {
+          const model = conn.model || '';
+          const url   = (conn.endpoint_url || `https://api.replicate.com/v1/models/${model}/predictions`).replace('{model}', model);
+          // Create prediction
+          const create = await axios.post(url,
+            { input: { prompt, max_new_tokens: conn.max_tokens || 1000, system_prompt: conn.system_prompt || '' } },
+            { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json', 'Prefer': 'wait' } }
+          );
+          // Replicate may return output directly when using Prefer: wait
+          const output = create.data?.output;
+          if (Array.isArray(output)) return output.join('');
+          if (typeof output === 'string') return output;
+          // Otherwise poll
+          const pollUrl = create.data?.urls?.get;
+          if (!pollUrl) return '';
+          for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 1000));
+            const poll = await axios.get(pollUrl, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+            if (poll.data?.status === 'succeeded') {
+              const out = poll.data?.output;
+              return Array.isArray(out) ? out.join('') : (out || '');
+            }
+            if (poll.data?.status === 'failed') throw new Error(poll.data?.error || 'Replicate prediction failed');
+          }
+          throw new Error('Replicate prediction timed out');
+        },
+
+        // AWS Bedrock (Converse API with AWS Sig V4)
+        bedrock: async () => {
+          // Credentials stored as ACCESS_KEY|SECRET_KEY|REGION
+          const [accessKey, secretKey, region = 'us-east-1'] = apiKey.split('|');
+          if (!accessKey || !secretKey) throw new Error('Bedrock credentials must be formatted as ACCESS_KEY_ID|SECRET_ACCESS_KEY|REGION');
+          const model  = conn.model || 'anthropic.claude-3-haiku-20240307-v1:0';
+          const host   = `bedrock-runtime.${region}.amazonaws.com`;
+          const path   = `/model/${encodeURIComponent(model)}/converse`;
+          const bodyObj = {
+            messages: [{ role: 'user', content: [{ text: prompt }] }],
+            inferenceConfig: { maxTokens: conn.max_tokens || 1000 },
+            ...(conn.system_prompt ? { system: [{ text: conn.system_prompt }] } : {}),
+          };
+          const bodyStr = JSON.stringify(bodyObj);
+          const headers = awsSign('POST', 'bedrock', region, host, path, bodyStr, accessKey, secretKey);
+          const r = await axios.post(`https://${host}${path}`, bodyStr, { headers });
+          return r.data?.output?.message?.content?.[0]?.text || '';
+        },
+
+        // ── OpenAI-compatible providers (single line each) ─────────────────
+        openai:      () => openaiCompat(conn.endpoint_url || 'https://api.openai.com/v1/chat/completions',           { Authorization: `Bearer ${apiKey}` }),
+        azure:       () => openaiCompat(conn.endpoint_url,                                                            { Authorization: `Bearer ${apiKey}`, 'api-key': apiKey }),
+        mistral:     () => openaiCompat(conn.endpoint_url || 'https://api.mistral.ai/v1/chat/completions',            { Authorization: `Bearer ${apiKey}` }),
+        groq:        () => openaiCompat(conn.endpoint_url || 'https://api.groq.com/openai/v1/chat/completions',       { Authorization: `Bearer ${apiKey}` }),
+        deepseek:    () => openaiCompat(conn.endpoint_url || 'https://api.deepseek.com/v1/chat/completions',          { Authorization: `Bearer ${apiKey}` }),
+        xai:         () => openaiCompat(conn.endpoint_url || 'https://api.x.ai/v1/chat/completions',                 { Authorization: `Bearer ${apiKey}` }),
+        perplexity:  () => openaiCompat(conn.endpoint_url || 'https://api.perplexity.ai/chat/completions',           { Authorization: `Bearer ${apiKey}` }),
+        together:    () => openaiCompat(conn.endpoint_url || 'https://api.together.xyz/v1/chat/completions',          { Authorization: `Bearer ${apiKey}` }),
+        fireworks:   () => openaiCompat(conn.endpoint_url || 'https://api.fireworks.ai/inference/v1/chat/completions',{ Authorization: `Bearer ${apiKey}` }),
+        openrouter:  () => openaiCompat(conn.endpoint_url || 'https://openrouter.ai/api/v1/chat/completions',         { Authorization: `Bearer ${apiKey}`, 'HTTP-Referer': 'https://promptsense.ai', 'X-Title': 'PromptSense' }),
+        aimlapi:     () => openaiCompat(conn.endpoint_url || 'https://api.aimlapi.com/v1/chat/completions',           { Authorization: `Bearer ${apiKey}` }),
+        ai21:        () => openaiCompat(conn.endpoint_url || 'https://api.ai21.com/studio/v1/chat/completions',       { Authorization: `Bearer ${apiKey}` }),
+        github:      () => openaiCompat(conn.endpoint_url || 'https://models.inference.ai.azure.com/chat/completions',{ Authorization: `Bearer ${apiKey}` }),
+        cloudflare:  () => openaiCompat(conn.endpoint_url,                                                            { Authorization: `Bearer ${apiKey}` }),
+        huggingface: () => openaiCompat((conn.endpoint_url || 'https://api-inference.huggingface.co/models/{model}/v1/chat/completions').replace('{model}', conn.model || ''), { Authorization: `Bearer ${apiKey}` }),
+        ollama:      () => openaiCompat(conn.endpoint_url || 'http://localhost:11434/v1/chat/completions',            {}),
+        litellm:     () => openaiCompat(conn.endpoint_url || 'http://localhost:4000/v1/chat/completions',             apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        custom:      () => openaiCompat(conn.endpoint_url,                                                            apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       };
 
       const caller = PROVIDER_CALLS[providerName];
@@ -200,8 +311,13 @@ async function proxyPrompt(req, res) {
     } catch (err) {
       const status = err.response?.status;
       if (status === 401) return res.status(401).json({ error: 'Invalid provider API key' });
-      if (status === 429) return res.status(429).json({ error: 'Provider rate limit reached' });
-      return res.status(502).json({ error: err.response?.data?.error?.message || err.message });
+      if (status === 403) return res.status(403).json({ error: 'Provider access denied — check API key permissions' });
+      if (status === 429) return res.status(429).json({ error: 'Provider rate limit reached. Please try again shortly.' });
+      const msg = err.response?.data?.error?.message
+               || err.response?.data?.message
+               || err.response?.data?.error
+               || err.message;
+      return res.status(502).json({ error: `Provider error: ${msg}` });
     }
   }
 
