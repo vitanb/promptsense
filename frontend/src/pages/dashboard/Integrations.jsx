@@ -92,6 +92,22 @@ const PROVIDERS = [
     defaultUrl: 'https://api.perplexity.ai/chat/completions',
     openaiCompat: true,
   },
+  {
+    id: 'cerebras', label: 'Cerebras', icon: '⚡', color: '#E5322D',
+    tier: 'Fast inference',
+    models: ['llama-4-scout-17b-16e-instruct','llama-3.3-70b','llama-3.1-8b','llama3.1-70b','llama3.1-8b','qwen-3-32b'],
+    defaultUrl: 'https://api.cerebras.ai/v1/chat/completions',
+    openaiCompat: true,
+    notes: 'Cerebras runs on dedicated AI hardware delivering ultra-low latency inference. Get your API key at cloud.cerebras.ai.',
+  },
+  {
+    id: 'sambanova', label: 'SambaNova Cloud', icon: 'SN', color: '#EE3E23',
+    tier: 'Fast inference',
+    models: ['Meta-Llama-3.3-70B-Instruct','Meta-Llama-3.1-405B-Instruct','Meta-Llama-3.1-70B-Instruct','Qwen2.5-72B-Instruct','DeepSeek-R1','DeepSeek-V3-0324','Llama-4-Scout-17B-16E-Instruct'],
+    defaultUrl: 'https://api.sambanova.ai/v1/chat/completions',
+    openaiCompat: true,
+    notes: 'SambaNova runs on custom RDU hardware with high throughput for large models. Get your API key at cloud.sambanova.ai.',
+  },
 
   // ── Cloud inference platforms ─────────────────────────────────────────────
   {
@@ -152,6 +168,30 @@ const PROVIDERS = [
     defaultUrl: 'https://api.replicate.com/v1/models/{model}/predictions',
     notes: 'Enter model as owner/model-name (e.g. meta/llama-3.3-70b-instruct). Get your API token at replicate.com.',
   },
+  {
+    id: 'nvidia', label: 'NVIDIA NIM', icon: '▣', color: '#76B900',
+    tier: 'Cloud inference platforms',
+    models: ['meta/llama-3.3-70b-instruct','meta/llama-4-scout-17b-16e-instruct','nvidia/llama-3.1-nemotron-70b-instruct','mistralai/mistral-7b-instruct-v0.3','google/gemma-2-27b-it','microsoft/phi-3.5-moe-instruct'],
+    defaultUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    openaiCompat: true,
+    notes: 'NVIDIA NIM provides optimized inference on NVIDIA hardware. Get your API key at build.nvidia.com (free tier available). Model names follow the pattern owner/model-name.',
+  },
+  {
+    id: 'llamaapi', label: 'Meta Llama API', icon: '🦙', color: '#0064E0',
+    tier: 'Cloud inference platforms',
+    models: ['Llama-4-Maverick-17B-128E-Instruct-FP8','Llama-4-Scout-17B-16E-Instruct','Llama-3.3-70B-Instruct','Llama-3.1-405B-Instruct-FP8','Llama-3.2-90B-Vision-Instruct'],
+    defaultUrl: 'https://api.llama.com/v1/chat/completions',
+    openaiCompat: true,
+    notes: 'Official Meta Llama API. Get your API key at llama.com. Provides access to the latest Llama 4 and Llama 3.x models.',
+  },
+  {
+    id: 'watsonx', label: 'IBM WatsonX', icon: 'IBM', color: '#1F70C1',
+    tier: 'Cloud inference platforms',
+    models: ['ibm/granite-3-8b-instruct','ibm/granite-3-2b-instruct','meta-llama/llama-3-3-70b-instruct','meta-llama/llama-3-2-11b-vision-instruct','mistralai/mistral-large'],
+    defaultUrl: 'https://us-south.ml.cloud.ibm.com/ml/v1/text/chat?version=2024-05-01',
+    openaiCompat: true,
+    notes: 'IBM WatsonX AI. Enter your IBM Cloud IAM API key. Set the Endpoint URL region prefix (us-south, eu-de, au-syd, jp-tok) to match your resource location.',
+  },
 
   // ── Self-hosted & local ───────────────────────────────────────────────────
   {
@@ -178,6 +218,24 @@ const PROVIDERS = [
     defaultUrl: 'http://localhost:4000/v1/chat/completions',
     openaiCompat: true,
     notes: 'LiteLLM is an OpenAI-compatible proxy that supports 400+ models. Point the Endpoint URL to your LiteLLM proxy. Enter your LiteLLM API key if authentication is enabled.',
+  },
+  {
+    id: 'vllm', label: 'vLLM', icon: 'vL', color: '#8B5CF6',
+    tier: 'Self-hosted & local',
+    models: [],
+    defaultUrl: 'http://localhost:8000/v1/chat/completions',
+    openaiCompat: true,
+    keyRequired: false,
+    notes: 'vLLM is a high-throughput LLM serving engine with PagedAttention. Start with `vllm serve <model>` and point the Endpoint URL to your server. Enter the model name as deployed (e.g. mistralai/Mistral-7B-Instruct-v0.3). API key is optional if your server has auth disabled.',
+  },
+  {
+    id: 'localai', label: 'LocalAI', icon: '🏠', color: '#059669',
+    tier: 'Self-hosted & local',
+    models: [],
+    defaultUrl: 'http://localhost:8080/v1/chat/completions',
+    openaiCompat: true,
+    keyRequired: false,
+    notes: 'LocalAI is an OpenAI-compatible server for running GGUF, GPTQ, exl2 and other model formats locally. Compatible with llama.cpp, whisper, and more. No API key required by default.',
   },
   {
     id: 'cloudflare', label: 'Cloudflare AI', icon: '🌐', color: '#F48120',
@@ -431,6 +489,9 @@ export default function Integrations() {
     'Self-hosted & local',
     'Custom',
   ];
+  // also include any tier that appears in filtered but not in the static list (future-proof)
+  const extraTiers = filtered.map(p => p.tier).filter(t => !tiers.includes(t));
+  const allTiers = [...tiers, ...new Set(extraTiers)];
 
   return (
     <div>
@@ -454,7 +515,7 @@ export default function Integrations() {
       </div>
 
       {/* Tiered sections */}
-      {tiers.map(tier => {
+      {allTiers.map(tier => {
         const group = filtered.filter(p => p.tier === tier);
         if (!group.length) return null;
         return (

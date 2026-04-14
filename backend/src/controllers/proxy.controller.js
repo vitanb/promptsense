@@ -300,9 +300,20 @@ async function proxyPrompt(req, res) {
         github:      () => openaiCompat(conn.endpoint_url || 'https://models.inference.ai.azure.com/chat/completions',{ Authorization: `Bearer ${apiKey}` }),
         cloudflare:  () => openaiCompat(conn.endpoint_url,                                                            { Authorization: `Bearer ${apiKey}` }),
         huggingface: () => openaiCompat((conn.endpoint_url || 'https://api-inference.huggingface.co/models/{model}/v1/chat/completions').replace('{model}', conn.model || ''), { Authorization: `Bearer ${apiKey}` }),
-        ollama:      () => openaiCompat(conn.endpoint_url || 'http://localhost:11434/v1/chat/completions',            {}),
+        ollama:      () => openaiCompat(conn.endpoint_url || 'http://localhost:11434/v1/chat/completions',            apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
         litellm:     () => openaiCompat(conn.endpoint_url || 'http://localhost:4000/v1/chat/completions',             apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        custom:      () => openaiCompat(conn.endpoint_url,                                                            apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        vllm:        () => openaiCompat(conn.endpoint_url || 'http://localhost:8000/v1/chat/completions',             apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        localai:     () => openaiCompat(conn.endpoint_url || 'http://localhost:8080/v1/chat/completions',             apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        cerebras:    () => openaiCompat(conn.endpoint_url || 'https://api.cerebras.ai/v1/chat/completions',          { Authorization: `Bearer ${apiKey}` }),
+        sambanova:   () => openaiCompat(conn.endpoint_url || 'https://api.sambanova.ai/v1/chat/completions',         { Authorization: `Bearer ${apiKey}` }),
+        nvidia:      () => openaiCompat(conn.endpoint_url || 'https://integrate.api.nvidia.com/v1/chat/completions', { Authorization: `Bearer ${apiKey}` }),
+        llamaapi:    () => openaiCompat(conn.endpoint_url || 'https://api.llama.com/v1/chat/completions',            { Authorization: `Bearer ${apiKey}` }),
+        watsonx:     () => openaiCompat(conn.endpoint_url || 'https://us-south.ml.cloud.ibm.com/ml/v1/text/chat?version=2024-05-01', { Authorization: `Bearer ${apiKey}` }),
+        custom:      () => openaiCompat(conn.endpoint_url,                                                           apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+
+        // ── Coming soon (service-account auth not yet implemented) ────────────
+        vertex:    async () => { throw Object.assign(new Error('Google Vertex AI with service-account auth is coming soon. Use the Gemini provider for direct Gemini API access.'), { response: { status: 501 } }); },
+        sagemaker: async () => { throw Object.assign(new Error('Amazon SageMaker endpoint support is coming soon.'), { response: { status: 501 } }); },
       };
 
       const caller = PROVIDER_CALLS[providerName];

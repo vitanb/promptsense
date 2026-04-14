@@ -3,7 +3,16 @@ import { useOrg } from '../../context/OrgContext';
 import { promptApi, configApi } from '../../services/api';
 import { MetricCard, Badge, Toggle, Alert, Btn } from '../../components/UI';
 
-const PROVIDER_COLORS = { anthropic:'#D85A30', openai:'#10a37f', azure:'#0078D4', gemini:'#4285F4', mistral:'#FF7000', cohere:'#39594D', custom:'#7F77DD' };
+const PROVIDER_COLORS = {
+  anthropic:'#D85A30', openai:'#10a37f',    azure:'#0078D4',    gemini:'#4285F4',
+  vertex:'#34A853',    bedrock:'#FF9900',    mistral:'#FF7000',  groq:'#F55036',
+  deepseek:'#4D6BFE',  xai:'#333333',       perplexity:'#20808D',cerebras:'#E5322D',
+  sambanova:'#EE3E23', together:'#4B6FEE',  fireworks:'#FF6B00', openrouter:'#6B46C1',
+  aimlapi:'#009688',   cohere:'#39594D',    ai21:'#5B2D8E',     github:'#24292E',
+  replicate:'#000000', nvidia:'#76B900',    llamaapi:'#0064E0',  watsonx:'#1F70C1',
+  ollama:'#555555',    huggingface:'#FF9D00',litellm:'#0EA5E9',  vllm:'#8B5CF6',
+  localai:'#059669',   cloudflare:'#F48120',sagemaker:'#232F3E', custom:'#7F77DD',
+};
 
 export default function Playground() {
   const { currentOrg, orgDetail } = useOrg();
