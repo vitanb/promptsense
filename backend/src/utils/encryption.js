@@ -1,9 +1,20 @@
 const crypto = require('crypto');
 
 const ALGORITHM = 'aes-256-gcm';
-// Always derive exactly 32 bytes via SHA-256 so any ENCRYPTION_KEY length works
-const rawKey = process.env.ENCRYPTION_KEY || crypto.randomBytes(32).toString('hex');
-const KEY = crypto.createHash('sha256').update(rawKey).digest();
+
+if (!process.env.ENCRYPTION_KEY) {
+  // Crash at startup rather than silently using a per-process random key.
+  // A random key means every restart renders all stored provider API keys
+  // permanently unrecoverable — a silent, catastrophic data loss.
+  throw new Error(
+    '[PromptSense] ENCRYPTION_KEY environment variable is required but not set.\n' +
+    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n' +
+    'and add it to your Render / .env environment.'
+  );
+}
+
+// Derive exactly 32 bytes via SHA-256 so any key length works
+const KEY = crypto.createHash('sha256').update(process.env.ENCRYPTION_KEY).digest();
 
 function encrypt(text) {
   if (!text) return null;

@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { query } = require('../db/pool');
 const { decrypt } = require('../utils/encryption');
+const { renderBodyTemplate } = require('../middleware/validate');
 const logger = require('../utils/logger');
 
 // ── Country detection ─────────────────────────────────────────────────────────
@@ -139,7 +140,7 @@ async function proxyPrompt(req, res) {
 
   if (downstream) {
     try {
-      const body = downstream.body_template.replace('{{prompt}}', prompt.replace(/"/g, '\\"'));
+      const body = renderBodyTemplate(downstream.body_template, prompt);
       let headers = { 'Content-Type': 'application/json' };
       if (downstream.extra_headers) Object.assign(headers, downstream.extra_headers);
       if (downstream.encrypted_api_key) headers['Authorization'] = 'Bearer ' + decrypt(downstream.encrypted_api_key);

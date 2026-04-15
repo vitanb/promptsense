@@ -9,8 +9,13 @@ const logger = require('../utils/logger');
 const { nullifyUserReferences } = require('./admin.controller');
 
 function generateTokens(userId, extra = {}) {
-  // Embed lightweight user fields in the token so authenticate() skips the DB on most requests
-  const accessToken = jwt.sign({ userId, ...extra }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
+  // Embed lightweight user fields in the token so authenticate() skips the DB on most requests.
+  // Algorithm is pinned to HS256 to prevent algorithm-confusion attacks (e.g. RS256 / none).
+  const accessToken = jwt.sign(
+    { userId, ...extra },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '15m', algorithm: 'HS256' }
+  );
   const refreshToken = crypto.randomBytes(40).toString('hex');
   return { accessToken, refreshToken };
 }

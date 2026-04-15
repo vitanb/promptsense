@@ -17,8 +17,19 @@ const MAX_PROMPT_CHARS   = 32_000;   // ~8 K tokens worst case
 const MAX_SYSTEM_CHARS   = 8_000;
 const MAX_TEMPLATE_CHARS = 16_000;
 
+// Must stay in sync with PROVIDER_CALLS in proxy.controller.js
 const ALLOWED_PROVIDERS = new Set([
-  'anthropic', 'openai', 'azure', 'gemini', 'mistral', 'cohere',
+  // Major cloud
+  'anthropic', 'openai', 'azure', 'gemini', 'vertex', 'bedrock',
+  // Fast inference
+  'groq', 'mistral', 'deepseek', 'xai', 'perplexity', 'cerebras', 'sambanova',
+  // Cloud inference platforms
+  'together', 'fireworks', 'openrouter', 'aimlapi', 'cohere', 'ai21',
+  'github', 'replicate', 'nvidia', 'llamaapi', 'watsonx',
+  // Self-hosted & local (endpoint_url validated separately via SSRF check)
+  'ollama', 'huggingface', 'litellm', 'vllm', 'localai', 'cloudflare', 'sagemaker',
+  // Custom
+  'custom',
 ]);
 
 // RFC-1918 + loopback + link-local + cloud metadata ranges
@@ -227,11 +238,78 @@ setInterval(() => {
   }
 }, 5 * 60_000);
 
+// Allowed HTTP methods for downstream / provider endpoint configuration
+const ALLOWED_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+
+// Headers that must never be set via user-supplied extra_headers (security-sensitive)
+const BLOCKED_HEADERS = new Set([
+  'host', 'content-length', 'transfer-encoding', 'te', 'trailer',
+  'upgrade', 'connection', 'proxy-authorization', 'cookie', 'set-cookie',
+  'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
+]);
+
+/**
+ * Sanitise extra_headers provided by the user for downstream systems.
+ * Strips any header whose name is in the security blocklist.
+ * Returns a clean object (may be empty).
+ */
+function sanitizeExtraHeaders(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const clean = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof k !== 'string' || typeof v !== 'string') continue;
+    if (BLOCKED_HEADERS.has(k.toLowerCase())) continue;
+    // Reject header injection: names/values must not contain CR/LF
+    if (/[\r\n]/.test(k) || /[\r\n]/.test(v)) continue;
+    // Limit header name and value lengths
+    if (k.length > 128 || v.length > 4096) continue;
+    clean[k] = v;
+  }
+  return clean;
+}
+
+/**
+ * Validate a provider endpoint URL for SSRF safety.
+ * Applied when saving a provider connection (PUT /providers).
+ * Self-hosted providers (ollama, vllm, localai, litellm, custom) are exempt
+ * from SSRF checks because localhost is their legitimate deployment target.
+ */
+const SSRF_EXEMPT_PROVIDERS = new Set(['ollama', 'vllm', 'localai', 'litellm', 'custom']);
+
+function validateProviderUrl(req, res, next) {
+  const { provider, endpointUrl } = req.body || {};
+  if (!endpointUrl) return next();
+  if (SSRF_EXEMPT_PROVIDERS.has((provider || '').toLowerCase())) return next();
+
+  const err = checkSsrf(endpointUrl);
+  if (err) {
+    logger.warn('SSRF attempt blocked on provider endpoint URL', { endpointUrl, provider, orgId: req.orgId });
+    return res.status(400).json({ error: `Provider endpoint URL rejected: ${err}` });
+  }
+  next();
+}
+
+/**
+ * Safe downstream body template substitution.
+ * Uses JSON.stringify so the prompt is properly escaped for JSON context.
+ */
+function renderBodyTemplate(template, prompt) {
+  // JSON.stringify gives us the JSON-safe escaped string including surrounding quotes.
+  // .slice(1,-1) strips those quotes so we can drop it into the template token.
+  const escaped = JSON.stringify(prompt).slice(1, -1);
+  return template.replace(/\{\{prompt\}\}/g, escaped);
+}
+
 module.exports = {
   validateProxy,
   validateWebhookUrl,
   validateDownstreamUrl,
+  validateProviderUrl,
   perOrgRateLimit,
   checkSsrf,
   sanitizeString,
+  sanitizeExtraHeaders,
+  renderBodyTemplate,
+  ALLOWED_PROVIDERS,
+  ALLOWED_HTTP_METHODS,
 };

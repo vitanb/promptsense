@@ -2,7 +2,7 @@ const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/config.controller');
 const ssoCtrl = require('../controllers/sso.controller');
 const { authenticate, loadOrg, requireRole, requireTrialAccess } = require('../middleware/auth');
-const { validateWebhookUrl, validateDownstreamUrl } = require('../middleware/validate');
+const { validateWebhookUrl, validateDownstreamUrl, sanitizeExtraHeaders, ALLOWED_HTTP_METHODS } = require('../middleware/validate');
 
 router.use(authenticate, loadOrg);
 
@@ -40,7 +40,17 @@ router.get('/downstream', async (req, res) => {
 router.put('/downstream', requireRole('developer'), requireTrialAccess(), validateDownstreamUrl, async (req, res) => {
   const { query } = require('../db/pool');
   const { encrypt } = require('../utils/encryption');
-  const { name, endpointUrl, apiKey, httpMethod, extraHeaders, bodyTemplate, responseField, timeoutMs, fallbackToProvider, enabled } = req.body;
+  let { name, endpointUrl, apiKey, httpMethod, extraHeaders, bodyTemplate, responseField, timeoutMs, fallbackToProvider, enabled } = req.body;
+
+  // Whitelist HTTP method
+  if (httpMethod && !ALLOWED_HTTP_METHODS.has((httpMethod || '').toUpperCase())) {
+    return res.status(400).json({ error: `Invalid httpMethod. Allowed: ${[...ALLOWED_HTTP_METHODS].join(', ')}` });
+  }
+  httpMethod = (httpMethod || 'POST').toUpperCase();
+
+  // Strip dangerous headers before persisting
+  const safeHeaders = sanitizeExtraHeaders(extraHeaders);
+
   const { rows: [existing] } = await query('SELECT id FROM downstream_systems WHERE org_id=$1', [req.orgId]);
   const encKey = apiKey ? encrypt(apiKey) : undefined;
 
@@ -54,8 +64,8 @@ router.put('/downstream', requireRole('developer'), requireTrialAccess(), valida
        WHERE id=$10 AND org_id=${ encKey ? '12' : '11'}
        RETURNING id,name,endpoint_url,http_method,body_template,response_field,timeout_ms,fallback_to_provider,enabled`,
       encKey
-        ? [name,endpointUrl,httpMethod,extraHeaders,bodyTemplate,responseField,timeoutMs,fallbackToProvider,enabled,existing.id,encKey,req.orgId]
-        : [name,endpointUrl,httpMethod,extraHeaders,bodyTemplate,responseField,timeoutMs,fallbackToProvider,enabled,existing.id,req.orgId]
+        ? [name,endpointUrl,httpMethod,safeHeaders,bodyTemplate,responseField,timeoutMs,fallbackToProvider,enabled,existing.id,encKey,req.orgId]
+        : [name,endpointUrl,httpMethod,safeHeaders,bodyTemplate,responseField,timeoutMs,fallbackToProvider,enabled,existing.id,req.orgId]
     );
     return res.json(ds);
   }
@@ -63,7 +73,7 @@ router.put('/downstream', requireRole('developer'), requireTrialAccess(), valida
   const { rows: [ds] } = await query(
     `INSERT INTO downstream_systems (org_id,name,endpoint_url,encrypted_api_key,http_method,extra_headers,body_template,response_field,timeout_ms,fallback_to_provider,enabled)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,name,endpoint_url,http_method,body_template,response_field,timeout_ms,fallback_to_provider,enabled`,
-    [req.orgId, name||'Default', endpointUrl, encKey||null, httpMethod||'POST', extraHeaders||{}, bodyTemplate||'{"prompt":"{{prompt}}"}', responseField||'', timeoutMs||10000, fallbackToProvider??true, enabled??false]
+    [req.orgId, name||'Default', endpointUrl, encKey||null, httpMethod, safeHeaders, bodyTemplate||'{"prompt":"{{prompt}}"}', responseField||'', timeoutMs||10000, fallbackToProvider??true, enabled??false]
   );
   res.status(201).json(ds);
 });

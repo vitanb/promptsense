@@ -37,12 +37,43 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Global API limiter
 const limiter = rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false });
-const authLimiter = rateLimit({ windowMs: 60_000, max: 10, message: { error: 'Too many auth attempts' } });
+
+// Strict limiter for all sensitive auth flows — brute-force & enumeration protection
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000, max: 15,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many attempts — please wait 15 minutes before trying again.' },
+});
+
+// Moderate limiter for SSO lookups and starts — prevents email enumeration
+const ssoLimiter = rateLimit({
+  windowMs: 60_000, max: 20,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many requests — please slow down.' },
+});
+
+// Limiter for destructive operations — prevents bulk-delete attacks
+const destructiveLimiter = rateLimit({
+  windowMs: 60_000, max: 30,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many delete operations — please slow down.' },
+});
 
 app.use('/api', limiter);
-app.use('/api/auth/login',    authLimiter);
-app.use('/api/auth/register', authLimiter);
+
+// Tighten all auth-related endpoints (not just login/register)
+app.use('/api/auth/login',           authLimiter);
+app.use('/api/auth/register',        authLimiter);
+app.use('/api/auth/refresh',         authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth/reset-password',  authLimiter);
+app.use('/api/auth/sso/check',       ssoLimiter);
+app.use('/api/auth/sso/start',       ssoLimiter);
+
+// Export destructiveLimiter for use in route files
+app.locals.destructiveLimiter = destructiveLimiter;
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/api/auth',                      authRoutes);

@@ -1,6 +1,7 @@
 const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/org.controller');
 const { authenticate, loadOrg, requireRole, requireTrialAccess } = require('../middleware/auth');
+const { validateProviderUrl } = require('../middleware/validate');
 
 // All org routes require auth + org membership
 router.use(authenticate, loadOrg);
@@ -14,7 +15,7 @@ router.delete('/members/:memberId',           requireRole('administrator'), requ
 
 // Provider connections — allowed during free trial (Integrations page)
 router.get('/providers',                          requireTrialAccess({ trial: true }), ctrl.listProviders);
-router.put('/providers',        requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.upsertProvider);
+router.put('/providers',        requireRole('developer'), requireTrialAccess({ trial: true }), validateProviderUrl, ctrl.upsertProvider);
 router.delete('/providers/:provider', requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.deleteProvider);
 
 // API Keys — allowed during free trial (needed to use Playground via SDK)
