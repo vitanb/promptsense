@@ -73,16 +73,42 @@ function getSamlCallbackUrl() {
   return base ? `${base}/api/auth/sso/saml/callback` : null;
 }
 
-// ── In-memory state stores (cleared on restart — acceptable for stateless deploys) ──
-// OIDC: state -> { nonce, orgSlug, expiresAt }
-const oidcStateStore = new Map();
+// ── OIDC client cache (in-memory is fine — only caches discovered OIDC metadata) ──
 // OIDC client cache: orgId -> { client, expiresAt }
 const oidcClientCache = new Map();
 
+// ── OIDC state store (Postgres — survives restarts and multi-instance deploys) ──
+// sso_states table: state TEXT PK, org_slug TEXT, nonce TEXT, created_at TIMESTAMPTZ
+// See migration 008_security_hardening.sql
+
+async function ssoStateSet(state, orgSlug, nonce) {
+  await query(
+    'INSERT INTO sso_states (state, org_slug, nonce) VALUES ($1,$2,$3) ON CONFLICT (state) DO NOTHING',
+    [state, orgSlug, nonce || null]
+  );
+}
+
+async function ssoStateGet(state) {
+  const { rows: [row] } = await query(
+    `SELECT org_slug, nonce FROM sso_states
+     WHERE state=$1 AND created_at > NOW() - INTERVAL '10 minutes'`,
+    [state]
+  );
+  return row || null;
+}
+
+async function ssoStateDelete(state) {
+  await query('DELETE FROM sso_states WHERE state=$1', [state]);
+}
+
 // Sweep expired entries every 5 minutes
-setInterval(() => {
+setInterval(async () => {
+  try {
+    await query("DELETE FROM sso_states WHERE created_at < NOW() - INTERVAL '10 minutes'");
+  } catch (err) {
+    logger.warn('[SSO] sso_states cleanup error', { error: err.message });
+  }
   const now = Date.now();
-  for (const [k, v] of oidcStateStore) if (v.expiresAt < now) oidcStateStore.delete(k);
   for (const [k, v] of oidcClientCache) if (v.expiresAt < now) oidcClientCache.delete(k);
 }, 5 * 60 * 1000).unref(); // .unref() so this timer doesn't prevent clean shutdown
 
@@ -326,11 +352,7 @@ async function startOidc(req, res, cfg) {
 
     const state = `${cfg.slug}.${generators.state()}`;
     const nonce = generators.nonce();
-    oidcStateStore.set(state, {
-      nonce,
-      orgSlug: cfg.slug,
-      expiresAt: Date.now() + 10 * 60 * 1000,  // 10-minute window
-    });
+    await ssoStateSet(state, cfg.slug, nonce);
 
     const url = client.authorizationUrl({ scope: 'openid email profile', state, nonce });
     res.redirect(url);
@@ -346,15 +368,15 @@ async function startOidc(req, res, cfg) {
 async function oidcCallback(req, res) {
   const state = req.query.state;
 
-  // Validate state exists in our store
-  const stored = state ? oidcStateStore.get(state) : null;
+  // Validate state exists in our Postgres store (survives restarts + multi-instance)
+  const stored = state ? await ssoStateGet(state) : null;
   if (!stored) {
     return ssoError(res, 'SSO session expired or invalid. Please start the sign-in process again.');
   }
-  oidcStateStore.delete(state);
+  await ssoStateDelete(state); // consume — single-use
 
   try {
-    const cfg = await loadSsoConfig(stored.orgSlug);
+    const cfg = await loadSsoConfig(stored.org_slug);
     if (!cfg) throw new Error('SSO configuration not found or has been disabled.');
 
     const callbackUrl = getOidcCallbackUrl();

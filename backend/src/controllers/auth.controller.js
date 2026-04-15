@@ -8,16 +8,39 @@ const { SYSTEM_GUARDRAILS } = require('../db/seed');
 const logger = require('../utils/logger');
 const { nullifyUserReferences } = require('./admin.controller');
 
+// In-process cache of revoked JTIs — consulted by authenticate() before DB
+// to avoid a DB round-trip on every request. Only populated on explicit
+// revocation (logout, org membership removal). Entries are purged when the
+// token's natural expiry has passed (handled by the same periodic DB cleanup).
+const revokedJtiCache = new Set();
+
 function generateTokens(userId, extra = {}) {
   // Embed lightweight user fields in the token so authenticate() skips the DB on most requests.
   // Algorithm is pinned to HS256 to prevent algorithm-confusion attacks (e.g. RS256 / none).
+  // jti (JWT ID) enables explicit per-token revocation without invalidating all user tokens.
+  const jti = uuidv4();
+  const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
   const accessToken = jwt.sign(
-    { userId, ...extra },
+    { userId, jti, ...extra },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '15m', algorithm: 'HS256' }
+    { expiresIn, algorithm: 'HS256' }
   );
   const refreshToken = crypto.randomBytes(40).toString('hex');
-  return { accessToken, refreshToken };
+  // Compute absolute expiry for revocation table (match token's exp)
+  const expiresMs = parseExpiresIn(expiresIn);
+  const tokenExpiresAt = new Date(Date.now() + expiresMs);
+  return { accessToken, refreshToken, jti, tokenExpiresAt };
+}
+
+// Parse JWT expiresIn shorthand to milliseconds
+function parseExpiresIn(expiresIn) {
+  if (typeof expiresIn === 'number') return expiresIn * 1000;
+  const match = String(expiresIn).match(/^(\d+)([smhd])$/);
+  if (!match) return 15 * 60 * 1000; // default 15m
+  const n = parseInt(match[1], 10);
+  const unit = match[2];
+  const multipliers = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+  return n * (multipliers[unit] || 60000);
 }
 
 async function storeRefreshToken(userId, refreshToken) {
@@ -104,8 +127,29 @@ async function login(req, res) {
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
   if (!user.password_hash) return res.status(401).json({ error: 'This account uses social login' });
 
+  // Account lockout check — must happen before bcrypt to avoid timing oracle
+  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+    const mins = Math.ceil((new Date(user.locked_until) - Date.now()) / 60000);
+    return res.status(429).json({ error: `Account locked due to too many failed attempts. Try again in ${mins} minute${mins !== 1 ? 's' : ''}.`, code: 'ACCOUNT_LOCKED' });
+  }
+
   const valid = await bcrypt.compare(password, user.password_hash);
-  if (!valid) return res.status(401).json({ error: 'Invalid email or password' });
+  if (!valid) {
+    // Increment failure counter; lock after 10 consecutive failures for 15 minutes
+    await query(
+      `UPDATE users
+       SET login_attempts = login_attempts + 1,
+           locked_until   = CASE WHEN login_attempts + 1 >= 10
+                                 THEN NOW() + INTERVAL '15 minutes'
+                                 ELSE locked_until END
+       WHERE id = $1`,
+      [user.id]
+    );
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  // Successful auth — clear lockout state
+  await query('UPDATE users SET login_attempts=0, locked_until=NULL WHERE id=$1', [user.id]);
 
   // Run all independent operations in parallel to cut login time
   const isSuperuser = user.is_superuser === true;
@@ -137,7 +181,7 @@ async function login(req, res) {
   const [{ rows: memberships }] = await Promise.all([
     membershipQuery,
     storeRefreshToken(user.id, tokens.refreshToken),
-    query('UPDATE users SET last_login_at=NOW() WHERE id=$1', [user.id]),
+    query('UPDATE users SET last_login_at=NOW(), login_attempts=0, locked_until=NULL WHERE id=$1', [user.id]),
   ]);
   const { accessToken, refreshToken } = tokens;
 
@@ -205,7 +249,10 @@ async function resetPassword(req, res) {
   if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
 
   const hash = await bcrypt.hash(password, 10);
-  await query('UPDATE users SET password_hash=$1, reset_token=null, reset_token_expires=null WHERE id=$2', [hash, user.id]);
+  await query(
+    'UPDATE users SET password_hash=$1, reset_token=null, reset_token_expires=null, login_attempts=0, locked_until=NULL WHERE id=$2',
+    [hash, user.id]
+  );
   await query('UPDATE refresh_tokens SET revoked=true WHERE user_id=$1', [user.id]); // invalidate all sessions
 
   res.json({ message: 'Password reset successfully' });
@@ -246,10 +293,26 @@ async function deleteAccount(req, res) {
 // POST /auth/logout
 async function logout(req, res) {
   const { refreshToken } = req.body;
+  const promises = [];
+
   if (refreshToken) {
     const hash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-    await query('UPDATE refresh_tokens SET revoked=true WHERE token_hash=$1', [hash]);
+    promises.push(query('UPDATE refresh_tokens SET revoked=true WHERE token_hash=$1', [hash]));
   }
+
+  // Revoke the current access token by JTI so it cannot be replayed until it expires
+  if (req.tokenJti && req.tokenExpiresAt) {
+    promises.push(
+      query(
+        'INSERT INTO revoked_tokens (jti, user_id, expires_at) VALUES ($1,$2,$3) ON CONFLICT (jti) DO NOTHING',
+        [req.tokenJti, req.userId, req.tokenExpiresAt]
+      )
+    );
+    // Also add to the in-process cache so the check in authenticate() is instant
+    revokedJtiCache.add(req.tokenJti);
+  }
+
+  await Promise.all(promises);
   res.json({ message: 'Logged out' });
 }
 
@@ -295,4 +358,4 @@ async function me(req, res) {
   }
 }
 
-module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me, deleteAccount, generateTokens, storeRefreshToken };
+module.exports = { register, login, refresh, verifyEmail, forgotPassword, resetPassword, logout, me, deleteAccount, generateTokens, storeRefreshToken, revokedJtiCache };

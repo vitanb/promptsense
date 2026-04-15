@@ -2,6 +2,11 @@ const jwt = require('jsonwebtoken');
 const { query } = require('../db/pool');
 const logger = require('../utils/logger');
 
+// Lazy-load to avoid circular dependency (auth.controller → auth.js → auth.controller)
+function getRevokedJtiCache() {
+  return require('../controllers/auth.controller').revokedJtiCache;
+}
+
 // Verify JWT access token
 // User fields are embedded in the token payload (set at login) so we skip the DB query on every request.
 // The /auth/me endpoint is the only place that re-fetches from DB to get fresh data when needed.
@@ -12,6 +17,21 @@ async function authenticate(req, res, next) {
   const token = header.slice(7);
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+
+    // JTI revocation check — in-process cache first, then DB fallback
+    if (payload.jti) {
+      const cache = getRevokedJtiCache();
+      let revoked = cache.has(payload.jti);
+      if (!revoked) {
+        const { rows } = await query('SELECT 1 FROM revoked_tokens WHERE jti=$1', [payload.jti]);
+        if (rows.length > 0) {
+          cache.add(payload.jti); // warm the cache
+          revoked = true;
+        }
+      }
+      if (revoked) return res.status(401).json({ error: 'Token has been revoked', code: 'TOKEN_REVOKED' });
+    }
+
     // Reconstruct req.user from the token payload — no DB round-trip needed
     req.user = {
       id: payload.userId,
@@ -23,6 +43,9 @@ async function authenticate(req, res, next) {
     };
     req.userId = payload.userId;
     req.isSuperuser = payload.isSuperuser === true;
+    // Expose JTI and expiry so logout can revoke this specific token
+    req.tokenJti = payload.jti;
+    req.tokenExpiresAt = payload.exp ? new Date(payload.exp * 1000) : null;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token expired', code: 'TOKEN_EXPIRED' });
