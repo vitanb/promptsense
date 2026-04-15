@@ -106,6 +106,9 @@ async function proxyPrompt(req, res) {
   const inputFlags = await runGuardrails(req.orgId, prompt, 'input', countryCode);
   const blocked = inputFlags.filter(g => g.action === 'block');
 
+  // Respect org-level prompt storage preference (default: store)
+  const storePrompts = req.org?.settings?.store_prompts !== false;
+
   if (blocked.length > 0) {
     const msg = `[Blocked: ${blocked.map(g => g.name).join(', ')}]`;
     await recordUsage(req.orgId, 0);
@@ -113,7 +116,10 @@ async function proxyPrompt(req, res) {
     const event = await query(
       `INSERT INTO audit_events (org_id,user_id,provider,route,input_text,output_text,input_flags,passed,latency_ms,tokens_used)
        VALUES ($1,$2,$3,'blocked',$4,$5,$6,false,$7,0) RETURNING id`,
-      [req.orgId, req.userId, providerOverride || 'blocked', prompt, msg, blocked.map(g => g.name), Date.now()-t0]
+      [req.orgId, req.userId, providerOverride || 'blocked',
+       storePrompts ? prompt : null,
+       storePrompts ? msg    : null,
+       blocked.map(g => g.name), Date.now()-t0]
     );
     return res.status(200).json({ output: msg, blocked: true, inputFlags: blocked.map(g=>g.name), outputFlags: [], auditId: event.rows[0].id, latency: Date.now()-t0 });
   }
@@ -351,7 +357,9 @@ async function proxyPrompt(req, res) {
   const { rows: [event] } = await query(
     `INSERT INTO audit_events (org_id,user_id,provider,model,route,input_text,output_text,input_flags,output_flags,passed,latency_ms,tokens_used)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-    [req.orgId, req.userId||null, providerName, conn.model, route, prompt, finalOutput,
+    [req.orgId, req.userId||null, providerName, conn.model, route,
+     storePrompts ? prompt       : null,
+     storePrompts ? finalOutput  : null,
      inputFlags.map(g=>g.name), outputFlags.map(g=>g.name), outBlocked.length===0, latency, tokens]
   );
 

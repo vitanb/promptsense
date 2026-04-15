@@ -200,4 +200,43 @@ async function revokeApiKey(req, res) {
   res.json({ revoked: true });
 }
 
-module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey };
+// ── ORG SETTINGS (privacy / data) ────────────────────────────────────────────
+
+// Allowed setting keys and their validators — whitelist prevents arbitrary JSONB writes
+const SETTINGS_SCHEMA = {
+  store_prompts:       (v) => typeof v === 'boolean',
+  retention_days:      (v) => v === null || (Number.isInteger(v) && v >= 1 && v <= 3650),
+  mask_pii_in_logs:    (v) => typeof v === 'boolean',
+};
+
+async function getSettings(req, res) {
+  const { rows: [org] } = await query('SELECT settings FROM organizations WHERE id=$1', [req.orgId]);
+  // Merge stored settings with defaults so callers always get a complete object
+  const defaults = { store_prompts: true, retention_days: null, mask_pii_in_logs: false };
+  res.json({ ...defaults, ...(org?.settings || {}) });
+}
+
+async function updateSettings(req, res) {
+  const incoming = req.body || {};
+  const patch    = {};
+  const errors   = [];
+
+  for (const [key, value] of Object.entries(incoming)) {
+    if (!SETTINGS_SCHEMA[key]) { errors.push(`Unknown setting: ${key}`); continue; }
+    if (!SETTINGS_SCHEMA[key](value)) { errors.push(`Invalid value for ${key}`); continue; }
+    patch[key] = value;
+  }
+  if (errors.length) return res.status(400).json({ error: errors.join('; ') });
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'No valid settings provided' });
+
+  // Merge patch into existing JSONB (|| operator merges at top level)
+  const { rows: [org] } = await query(
+    `UPDATE organizations SET settings = settings || $1::jsonb, updated_at = NOW()
+     WHERE id = $2 RETURNING settings`,
+    [JSON.stringify(patch), req.orgId]
+  );
+  const defaults = { store_prompts: true, retention_days: null, mask_pii_in_logs: false };
+  res.json({ ...defaults, ...(org?.settings || {}) });
+}
+
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey, getSettings, updateSettings };

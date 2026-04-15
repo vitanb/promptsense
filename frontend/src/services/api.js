@@ -70,7 +70,9 @@ const o = (orgId) => `/orgs/${orgId}`;
 export const orgApi = {
   get:           (orgId)       => api.get(o(orgId)).then(r => r.data),
   update:        (orgId, data) => api.patch(o(orgId), data).then(r => r.data),
-  updateBranding:(orgId, data) => api.patch(`${o(orgId)}/branding`, data).then(r => r.data),
+  updateBranding: (orgId, data) => api.patch(`${o(orgId)}/branding`, data).then(r => r.data),
+  getSettings:    (orgId)       => api.get(`${o(orgId)}/settings`).then(r => r.data),
+  updateSettings: (orgId, data) => api.patch(`${o(orgId)}/settings`, data).then(r => r.data),
 
   // Members
   members:          (orgId)                   => api.get(`${o(orgId)}/members`).then(r => r.data),

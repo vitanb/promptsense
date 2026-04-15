@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useOrg } from '../../context/OrgContext';
 import { useAuth } from '../../context/AuthContext';
 import { promptApi, orgApi, billingApi } from '../../services/api';
-import { Card, Btn, Input, Select, Badge, Alert, PageHeader, Modal, MetricCard, Empty, Spinner } from '../../components/UI';
+import { Card, Btn, Input, Select, Badge, Alert, PageHeader, Modal, MetricCard, Empty, Spinner, Toggle } from '../../components/UI';
 
 // ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 export function AuditLog() {
@@ -426,6 +426,29 @@ STRIPE_WEBHOOK_SECRET    = whsec_...   (from Stripe webhook settings)`}
   );
 }
 
+// ── Controlled number input that commits on blur ──────────────────────────────
+function RetentionDaysInput({ value, disabled, onCommit }) {
+  const [local, setLocal] = useState(value != null ? String(value) : '');
+  useEffect(() => { setLocal(value != null ? String(value) : ''); }, [value]);
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+      <input
+        type="number" min={1} max={3650}
+        value={local}
+        disabled={disabled}
+        onChange={e => setLocal(e.target.value)}
+        onBlur={() => onCommit(local === '' ? null : parseInt(local, 10) || null)}
+        placeholder="∞"
+        style={{ width:64, padding:'5px 8px', borderRadius:'var(--radius)',
+                 border:'0.5px solid var(--c-border2)', background:'var(--c-bg)',
+                 color:'var(--c-text)', fontSize:12, textAlign:'right',
+                 opacity: disabled ? 0.5 : 1 }}
+      />
+      <span style={{ fontSize:11, color:'var(--c-text3)' }}>days</span>
+    </div>
+  );
+}
+
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
 const TIMEZONES = ['UTC','America/New_York','America/Chicago','America/Denver','America/Los_Angeles','Europe/London','Europe/Paris','Europe/Berlin','Asia/Tokyo','Asia/Singapore','Asia/Dubai','Australia/Sydney'];
 
@@ -444,6 +467,11 @@ export function Settings() {
   const [deleteError, setDeleteError] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // ── Privacy settings state ──
+  const [privacy, setPrivacy] = useState({ store_prompts: true, mask_pii_in_logs: false, retention_days: null });
+  const [privacySaving, setPrivacySaving] = useState(null); // which key is saving
+  const [privacySuccess, setPrivacySuccess] = useState('');
+
   useEffect(() => {
     if (orgDetail) {
       setForm({ name: orgDetail.name||'', billingEmail: orgDetail.billing_email||'' });
@@ -455,6 +483,24 @@ export function Settings() {
       });
     }
   }, [orgDetail]);
+
+  // Load privacy settings on mount
+  useEffect(() => {
+    if (!orgId) return;
+    orgApi.getSettings(orgId).then(s => setPrivacy(s)).catch(() => {});
+  }, [orgId]);
+
+  const patchPrivacy = async (key, value) => {
+    setPrivacySaving(key);
+    setPrivacySuccess('');
+    try {
+      const updated = await orgApi.updateSettings(orgId, { [key]: value });
+      setPrivacy(updated);
+      setPrivacySuccess('Saved');
+      setTimeout(() => setPrivacySuccess(''), 2000);
+    } catch (e) { alert(e.response?.data?.error || 'Failed to save setting'); }
+    finally { setPrivacySaving(null); }
+  };
 
   const save = async () => {
     setLoading(true);
@@ -549,6 +595,82 @@ export function Settings() {
           </div>
         </Card>
       )}
+
+      {/* ── Privacy & Data ── */}
+      <Card style={{ maxWidth:520, marginTop:'1.5rem' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem' }}>
+          <div style={{ fontSize:13, fontWeight:600 }}>Privacy &amp; Data Retention</div>
+          {privacySuccess && <span style={{ fontSize:11, color:'var(--c-green)' }}>✓ {privacySuccess}</span>}
+        </div>
+
+        {/* Store prompt text */}
+        <div style={{ display:'flex', alignItems:'flex-start', gap:12, paddingBottom:14, marginBottom:14, borderBottom:'0.5px solid var(--c-border)' }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:500, marginBottom:3 }}>Store prompt &amp; response text</div>
+            <div style={{ fontSize:12, color:'var(--c-text2)', lineHeight:1.55 }}>
+              {privacy.store_prompts !== false
+                ? 'Full prompt and response text is saved to the audit log for search, replay, and export.'
+                : 'Prompt and response text is discarded after guardrail evaluation. Audit rows still record flags, latency, and tokens — only the text content is suppressed.'}
+            </div>
+            {privacy.store_prompts === false && (
+              <div style={{ marginTop:6, fontSize:11, padding:'3px 8px', borderRadius:4, display:'inline-block',
+                            background:'#FFF7ED', border:'0.5px solid #F59E0B', color:'#92400E' }}>
+                ⚠️ Audit log will show "[not stored]" — text cannot be recovered retroactively
+              </div>
+            )}
+          </div>
+          <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6, paddingTop:2 }}>
+            {privacySaving === 'store_prompts' && <Spinner size={13} />}
+            <Toggle
+              checked={privacy.store_prompts !== false}
+              onChange={v => can('administrator') && patchPrivacy('store_prompts', v)}
+              disabled={!can('administrator') || privacySaving === 'store_prompts'}
+            />
+          </div>
+        </div>
+
+        {/* Mask PII in logs */}
+        <div style={{ display:'flex', alignItems:'flex-start', gap:12, paddingBottom:14, marginBottom:14, borderBottom:'0.5px solid var(--c-border)' }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:500, marginBottom:3 }}>Mask PII in audit log display</div>
+            <div style={{ fontSize:12, color:'var(--c-text2)', lineHeight:1.55 }}>
+              Emails, phone numbers, and card patterns shown as ████ in the UI. Raw text in the database is unchanged.
+            </div>
+          </div>
+          <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6, paddingTop:2 }}>
+            {privacySaving === 'mask_pii_in_logs' && <Spinner size={13} />}
+            <Toggle
+              checked={!!privacy.mask_pii_in_logs}
+              onChange={v => can('administrator') && patchPrivacy('mask_pii_in_logs', v)}
+              disabled={!can('administrator') || privacySaving === 'mask_pii_in_logs'}
+            />
+          </div>
+        </div>
+
+        {/* Retention period */}
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:13, fontWeight:500, marginBottom:3 }}>Audit log retention</div>
+            <div style={{ fontSize:12, color:'var(--c-text2)', lineHeight:1.55 }}>
+              Auto-delete audit events older than N days. Leave blank to retain forever.
+            </div>
+          </div>
+          <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:6 }}>
+            {privacySaving === 'retention_days' && <Spinner size={13} />}
+            <RetentionDaysInput
+              value={privacy.retention_days}
+              disabled={!can('administrator') || privacySaving === 'retention_days'}
+              onCommit={val => patchPrivacy('retention_days', val)}
+            />
+          </div>
+        </div>
+
+        {!can('administrator') && (
+          <div style={{ marginTop:10, fontSize:11, color:'var(--c-text3)' }}>
+            Administrator role required to change privacy settings.
+          </div>
+        )}
+      </Card>
 
       {/* ── Danger Zone ── */}
       <div style={{ maxWidth:520, marginTop:'2rem', border:'0.5px solid var(--c-red)44', borderRadius:'var(--radius)', overflow:'hidden' }}>
