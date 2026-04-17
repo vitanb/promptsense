@@ -202,6 +202,15 @@ async function revokeApiKey(req, res) {
   res.json({ revoked: true });
 }
 
+async function deleteApiKey(req, res) {
+  // Only allowed on revoked keys — extra guard so active keys can't be silently wiped
+  const { rows } = await query('SELECT revoked FROM api_keys WHERE id=$1 AND org_id=$2', [req.params.id, req.orgId]);
+  if (!rows[0]) return res.status(404).json({ error: 'API key not found' });
+  if (!rows[0].revoked) return res.status(400).json({ error: 'Key must be revoked before it can be deleted' });
+  await query('DELETE FROM api_keys WHERE id=$1 AND org_id=$2', [req.params.id, req.orgId]);
+  res.json({ deleted: true });
+}
+
 // ── ORG SETTINGS (privacy / data) ────────────────────────────────────────────
 
 const VALID_COMPLIANCE_MODES = new Set(['hipaa', 'financial', 'legal', 'government', null]);
@@ -253,4 +262,4 @@ async function getComplianceTemplates(req, res) {
   res.json(getIndustryTemplates());
 }
 
-module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey, getSettings, updateSettings, getComplianceTemplates };
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey, deleteApiKey, getSettings, updateSettings, getComplianceTemplates };

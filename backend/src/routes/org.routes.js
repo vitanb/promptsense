@@ -1,6 +1,6 @@
 const router = require('express').Router({ mergeParams: true });
 const ctrl = require('../controllers/org.controller');
-const { authenticate, loadOrg, requireRole, requireTrialAccess } = require('../middleware/auth');
+const { authenticate, loadOrg, requireRole, requireTrialAccess, requireSuperuser } = require('../middleware/auth');
 const { validateProviderUrl } = require('../middleware/validate');
 
 // All org routes require auth + org membership
@@ -22,6 +22,8 @@ router.delete('/providers/:provider', requireRole('developer'), requireTrialAcce
 router.get('/api-keys',                           requireTrialAccess({ trial: true }), ctrl.listApiKeys);
 router.post('/api-keys',        requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.createApiKey);
 router.delete('/api-keys/:id',  requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.revokeApiKey);
+// Hard-delete a revoked key — superusers only
+router.delete('/api-keys/:id/delete', requireSuperuser, ctrl.deleteApiKey);
 
 // Org info
 router.get('/', async (req, res) => {

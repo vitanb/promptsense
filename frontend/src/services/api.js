@@ -91,6 +91,7 @@ export const orgApi = {
   apiKeys:      (orgId)      => api.get(`${o(orgId)}/api-keys`).then(r => r.data),
   createApiKey: (orgId, data)=> api.post(`${o(orgId)}/api-keys`, data).then(r => r.data),
   revokeApiKey: (orgId, id)  => api.delete(`${o(orgId)}/api-keys/${id}`).then(r => r.data),
+  deleteApiKey:  (orgId, id)  => api.delete(`${o(orgId)}/api-keys/${id}/delete`).then(r => r.data),
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────

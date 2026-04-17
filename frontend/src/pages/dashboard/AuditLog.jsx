@@ -736,7 +736,7 @@ function expiryLabel(expiresAt) {
 }
 
 export function ApiKeys() {
-  const { currentOrg, can } = useOrg();
+  const { currentOrg, can, isSuperuser } = useOrg();
   const orgId = currentOrg?.org_id;
   const [keys, setKeys] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -774,6 +774,14 @@ export function ApiKeys() {
   const revoke = async (id) => {
     await orgApi.revokeApiKey(orgId, id);
     setKeys(ks => ks.map(k => k.id===id ? {...k,revoked:true} : k));
+  };
+
+  const deleteKey = async (id) => {
+    if (!window.confirm('Permanently delete this API key? This cannot be undone.')) return;
+    try {
+      await orgApi.deleteApiKey(orgId, id);
+      setKeys(ks => ks.filter(k => k.id !== id));
+    } catch (e) { alert(e.response?.data?.error || 'Failed to delete key'); }
   };
 
   // Min date for custom picker = tomorrow
@@ -870,6 +878,9 @@ export function ApiKeys() {
                 {!k.revoked && expired && <Badge text="Expired" color="#ef4444" small />}
                 {!k.revoked && !expired && can('developer') && (
                   <Btn size="sm" variant="danger" onClick={() => revoke(k.id)}>Revoke</Btn>
+                )}
+                {k.revoked && isSuperuser && (
+                  <Btn size="sm" variant="danger" onClick={() => deleteKey(k.id)}>Delete</Btn>
                 )}
               </div>
             </div>
