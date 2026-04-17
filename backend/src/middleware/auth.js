@@ -194,7 +194,7 @@ async function authenticateApiKey(req, res, next) {
   const crypto = require('crypto');
   const keyHash = crypto.createHash('sha256').update(key).digest('hex');
   const { rows } = await query(
-    `SELECT ak.org_id, ak.revoked, ak.expires_at, o.subscription_status
+    `SELECT ak.org_id, ak.revoked, ak.expires_at, ak.downstream_system_id, o.subscription_status
      FROM api_keys ak JOIN organizations o ON o.id = ak.org_id
      WHERE ak.key_hash = $1`,
     [keyHash]
@@ -207,6 +207,7 @@ async function authenticateApiKey(req, res, next) {
   await query('UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1', [keyHash]);
   req.orgId = rows[0].org_id;
   req.apiKeyAuth = true;
+  req.apiKeyDownstreamId = rows[0].downstream_system_id || null;
   next();
 }
 

@@ -18,6 +18,12 @@ router.get('/providers',                          requireTrialAccess({ trial: tr
 router.put('/providers',        requireRole('developer'), requireTrialAccess({ trial: true }), validateProviderUrl, ctrl.upsertProvider);
 router.delete('/providers/:provider', requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.deleteProvider);
 
+// Downstream systems — full CRUD, allowed during free trial
+router.get('/downstreams',                              requireTrialAccess({ trial: true }), ctrl.listDownstreams);
+router.post('/downstreams',         requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.createDownstream);
+router.patch('/downstreams/:id',    requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.updateDownstream);
+router.delete('/downstreams/:id',   requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.deleteDownstream);
+
 // API Keys — allowed during free trial (needed to use Playground via SDK)
 router.get('/api-keys',                           requireTrialAccess({ trial: true }), ctrl.listApiKeys);
 router.post('/api-keys',        requireRole('developer'), requireTrialAccess({ trial: true }), ctrl.createApiKey);

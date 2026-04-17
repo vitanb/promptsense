@@ -87,6 +87,12 @@ export const orgApi = {
   upsertProvider: (orgId, data)  => api.put(`${o(orgId)}/providers`, data).then(r => r.data),
   deleteProvider: (orgId, prov)  => api.delete(`${o(orgId)}/providers/${prov}`).then(r => r.data),
 
+  // Downstream systems
+  downstreams:      (orgId)       => api.get(`${o(orgId)}/downstreams`).then(r => r.data),
+  createDownstream: (orgId, data) => api.post(`${o(orgId)}/downstreams`, data).then(r => r.data),
+  updateDownstream: (orgId, id, data) => api.patch(`${o(orgId)}/downstreams/${id}`, data).then(r => r.data),
+  deleteDownstream: (orgId, id)   => api.delete(`${o(orgId)}/downstreams/${id}`).then(r => r.data),
+
   // API Keys
   apiKeys:      (orgId)      => api.get(`${o(orgId)}/api-keys`).then(r => r.data),
   createApiKey: (orgId, data)=> api.post(`${o(orgId)}/api-keys`, data).then(r => r.data),

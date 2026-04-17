@@ -173,24 +173,98 @@ async function deleteProvider(req, res) {
   res.json({ deleted: true });
 }
 
+// ── DOWNSTREAM SYSTEMS (org-level CRUD) ──────────────────────────────────────
+const DOWNSTREAM_COLS = 'id,name,endpoint_url,http_method,body_template,response_field,timeout_ms,fallback_to_provider,enabled,created_at,updated_at';
+
+async function listDownstreams(req, res) {
+  const { rows } = await query(
+    `SELECT ${DOWNSTREAM_COLS} FROM downstream_systems WHERE org_id=$1 ORDER BY created_at`,
+    [req.orgId]
+  );
+  res.json(rows);
+}
+
+async function createDownstream(req, res) {
+  const { encrypt } = require('../utils/encryption');
+  const { validateDownstreamUrl, sanitizeExtraHeaders, ALLOWED_HTTP_METHODS } = require('../middleware/validate');
+  let { name, endpointUrl, apiKey, httpMethod, extraHeaders, bodyTemplate, responseField, timeoutMs, fallbackToProvider, enabled } = req.body;
+  if (!endpointUrl) return res.status(400).json({ error: 'endpointUrl is required' });
+  httpMethod = (httpMethod || 'POST').toUpperCase();
+  if (!ALLOWED_HTTP_METHODS.has(httpMethod)) return res.status(400).json({ error: 'Invalid HTTP method' });
+  const { rows: [ds] } = await query(
+    `INSERT INTO downstream_systems (org_id,name,endpoint_url,encrypted_api_key,http_method,extra_headers,body_template,response_field,timeout_ms,fallback_to_provider,enabled)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING ${DOWNSTREAM_COLS}`,
+    [req.orgId, name||'My Backend', endpointUrl, apiKey ? encrypt(apiKey) : null,
+     httpMethod, sanitizeExtraHeaders(extraHeaders),
+     bodyTemplate||'{"prompt":"{{prompt}}"}', responseField||'',
+     timeoutMs||10000, fallbackToProvider??true, enabled??false]
+  );
+  res.status(201).json(ds);
+}
+
+async function updateDownstream(req, res) {
+  const { encrypt } = require('../utils/encryption');
+  const { sanitizeExtraHeaders, ALLOWED_HTTP_METHODS } = require('../middleware/validate');
+  let { name, endpointUrl, apiKey, httpMethod, extraHeaders, bodyTemplate, responseField, timeoutMs, fallbackToProvider, enabled } = req.body;
+  if (httpMethod) {
+    httpMethod = httpMethod.toUpperCase();
+    if (!ALLOWED_HTTP_METHODS.has(httpMethod)) return res.status(400).json({ error: 'Invalid HTTP method' });
+  }
+  const encKey = apiKey ? encrypt(apiKey) : undefined;
+  const { rows: [ds] } = await query(
+    `UPDATE downstream_systems SET
+       name=COALESCE($1,name), endpoint_url=COALESCE($2,endpoint_url),
+       http_method=COALESCE($3,http_method), extra_headers=COALESCE($4,extra_headers),
+       body_template=COALESCE($5,body_template), response_field=COALESCE($6,response_field),
+       timeout_ms=COALESCE($7,timeout_ms), fallback_to_provider=COALESCE($8,fallback_to_provider),
+       enabled=COALESCE($9,enabled) ${encKey ? ', encrypted_api_key=$11' : ''}
+     WHERE id=$10 AND org_id=${encKey ? '$12' : '$11'}
+     RETURNING ${DOWNSTREAM_COLS}`,
+    encKey
+      ? [name,endpointUrl,httpMethod,extraHeaders ? sanitizeExtraHeaders(extraHeaders) : null,bodyTemplate,responseField,timeoutMs,fallbackToProvider,enabled,req.params.id,encKey,req.orgId]
+      : [name,endpointUrl,httpMethod,extraHeaders ? sanitizeExtraHeaders(extraHeaders) : null,bodyTemplate,responseField,timeoutMs,fallbackToProvider,enabled,req.params.id,req.orgId]
+  );
+  if (!ds) return res.status(404).json({ error: 'Downstream not found' });
+  res.json(ds);
+}
+
+async function deleteDownstream(req, res) {
+  // Unlink any API keys pointing at this downstream before deleting
+  await query('UPDATE api_keys SET downstream_system_id=NULL WHERE downstream_system_id=$1 AND org_id=$2', [req.params.id, req.orgId]);
+  const { rowCount } = await query('DELETE FROM downstream_systems WHERE id=$1 AND org_id=$2', [req.params.id, req.orgId]);
+  if (!rowCount) return res.status(404).json({ error: 'Downstream not found' });
+  res.json({ deleted: true });
+}
+
 // ── API KEYS ──────────────────────────────────────────────────────────────────
 async function listApiKeys(req, res) {
   const { rows } = await query(
-    'SELECT id, name, key_prefix, last_used_at, expires_at, revoked, created_at FROM api_keys WHERE org_id=$1 ORDER BY created_at DESC',
+    `SELECT ak.id, ak.name, ak.key_prefix, ak.last_used_at, ak.expires_at, ak.revoked, ak.created_at,
+            ak.downstream_system_id,
+            ds.name AS downstream_name, ds.endpoint_url AS downstream_url, ds.enabled AS downstream_enabled
+     FROM api_keys ak
+     LEFT JOIN downstream_systems ds ON ds.id = ak.downstream_system_id
+     WHERE ak.org_id=$1 ORDER BY ak.created_at DESC`,
     [req.orgId]
   );
   res.json(rows);
 }
 
 async function createApiKey(req, res) {
-  const { name, expiresAt } = req.body;
+  const { name, expiresAt, downstreamId } = req.body;
+  // Validate downstream belongs to this org if provided
+  if (downstreamId) {
+    const { rows } = await query('SELECT id FROM downstream_systems WHERE id=$1 AND org_id=$2', [downstreamId, req.orgId]);
+    if (!rows[0]) return res.status(400).json({ error: 'Downstream not found in this organisation' });
+  }
   const raw = 'ps_live_' + crypto.randomBytes(24).toString('hex');
   const hash = crypto.createHash('sha256').update(raw).digest('hex');
   const prefix = raw.slice(0, 17) + '...'; // VARCHAR(20) limit: 17 chars + '...' = 20
 
   await query(
-    'INSERT INTO api_keys (org_id,created_by,name,key_hash,key_prefix,expires_at) VALUES ($1,$2,$3,$4,$5,$6)',
-    [req.orgId, req.userId, name, hash, prefix, expiresAt||null]
+    'INSERT INTO api_keys (org_id,created_by,name,key_hash,key_prefix,expires_at,downstream_system_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [req.orgId, req.userId, name, hash, prefix, expiresAt||null, downstreamId||null]
   );
 
   // Return the raw key ONCE — never stored in plaintext
@@ -262,4 +336,4 @@ async function getComplianceTemplates(req, res) {
   res.json(getIndustryTemplates());
 }
 
-module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey, deleteApiKey, getSettings, updateSettings, getComplianceTemplates };
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listDownstreams, createDownstream, updateDownstream, deleteDownstream, listApiKeys, createApiKey, revokeApiKey, deleteApiKey, getSettings, updateSettings, getComplianceTemplates };

@@ -146,9 +146,17 @@ async function proxyPrompt(req, res) {
   if (!apiKey) return res.status(400).json({ error: 'Provider API key could not be decrypted' });
 
   // ── Step 3: Try downstream first ───────────────────────────────────────────
+  // If the request arrived via an API key that has a linked downstream, use that
+  // specific downstream. Otherwise fall back to the first org-level enabled one.
   let raw = null;
   let route = providerName;
-  const { rows: [downstream] } = await query('SELECT * FROM downstream_systems WHERE org_id=$1 AND enabled=true LIMIT 1', [req.orgId]);
+  let downstreamQuery;
+  if (req.apiKeyDownstreamId) {
+    downstreamQuery = await query('SELECT * FROM downstream_systems WHERE id=$1 AND org_id=$2 AND enabled=true', [req.apiKeyDownstreamId, req.orgId]);
+  } else {
+    downstreamQuery = await query('SELECT * FROM downstream_systems WHERE org_id=$1 AND enabled=true LIMIT 1', [req.orgId]);
+  }
+  const { rows: [downstream] } = downstreamQuery;
 
   if (downstream) {
     try {

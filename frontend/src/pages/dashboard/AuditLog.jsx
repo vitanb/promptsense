@@ -716,64 +716,71 @@ export function Settings() {
 }
 
 // ── API KEYS ──────────────────────────────────────────────────────────────────
-// Preset expiry options
 const EXPIRY_OPTIONS = [
-  { label: 'No expiry',  value: '' },
-  { label: '7 days',     value: '7d' },
-  { label: '30 days',    value: '30d' },
-  { label: '90 days',    value: '90d' },
-  { label: '1 year',     value: '365d' },
-  { label: 'Custom date',value: 'custom' },
+  { label: 'No expiry',   value: '' },
+  { label: '7 days',      value: '7d' },
+  { label: '30 days',     value: '30d' },
+  { label: '90 days',     value: '90d' },
+  { label: '1 year',      value: '365d' },
+  { label: 'Custom date', value: 'custom' },
 ];
-
-function expiryLabel(expiresAt) {
-  if (!expiresAt) return 'No expiry';
-  const d = new Date(expiresAt);
-  const now = new Date();
-  if (d < now) return 'Expired';
-  const days = Math.ceil((d - now) / 86400000);
-  return `Expires ${d.toLocaleDateString()} (${days}d left)`;
-}
 
 export function ApiKeys() {
   const { currentOrg, can, isSuperuser } = useOrg();
   const orgId = currentOrg?.org_id;
-  const [keys, setKeys] = useState([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newKey, setNewKey] = useState('');
-  const [name, setName] = useState('');
+
+  const [keys, setKeys]               = useState([]);
+  const [downstreams, setDownstreams] = useState([]);
+  const [showCreate, setShowCreate]   = useState(false);
+  const [newKey, setNewKey]           = useState('');
+  const [name, setName]               = useState('');
   const [expiryPreset, setExpiryPreset] = useState('');
-  const [customDate, setCustomDate] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [customDate, setCustomDate]   = useState('');
+  const [downstreamId, setDownstreamId] = useState('');
+  const [loading, setLoading]         = useState(false);
 
-  useEffect(() => { if (orgId) orgApi.apiKeys(orgId).then(setKeys).catch(()=>{}); }, [orgId]);
+  useEffect(() => {
+    if (!orgId) return;
+    orgApi.apiKeys(orgId).then(setKeys).catch(() => {});
+    orgApi.downstreams(orgId).then(setDownstreams).catch(() => {});
+  }, [orgId]);
 
-  // Compute ISO expiry date from the selected preset / custom date
   const resolvedExpiry = () => {
-    if (!expiryPreset || expiryPreset === '') return null;
+    if (!expiryPreset) return null;
     if (expiryPreset === 'custom') return customDate ? new Date(customDate).toISOString() : null;
-    const days = parseInt(expiryPreset);
     const d = new Date();
-    d.setDate(d.getDate() + days);
+    d.setDate(d.getDate() + parseInt(expiryPreset));
     return d.toISOString();
   };
+
+  const resetForm = () => { setName(''); setExpiryPreset(''); setCustomDate(''); setDownstreamId(''); };
 
   const create = async () => {
     setLoading(true);
     try {
       const expiresAt = resolvedExpiry();
-      const { key, prefix } = await orgApi.createApiKey(orgId, { name, expiresAt });
+      const { key, prefix } = await orgApi.createApiKey(orgId, {
+        name, expiresAt, downstreamId: downstreamId || null,
+      });
+      const ds = downstreams.find(d => d.id === downstreamId);
       setNewKey(key);
-      setKeys(ks => [...ks, { key_prefix:prefix, name, created_at:new Date().toISOString(), expires_at:expiresAt, revoked:false }]);
-      setName(''); setExpiryPreset(''); setCustomDate('');
+      setKeys(ks => [...ks, {
+        key_prefix: prefix, name, created_at: new Date().toISOString(),
+        expires_at: expiresAt, revoked: false,
+        downstream_system_id: downstreamId || null,
+        downstream_name: ds?.name || null,
+        downstream_url: ds?.endpoint_url || null,
+        downstream_enabled: ds?.enabled ?? null,
+      }]);
+      resetForm();
       setShowCreate(false);
-    } catch (e) { alert(e.response?.data?.error||'Failed to create key'); }
+    } catch (e) { alert(e.response?.data?.error || 'Failed to create key'); }
     finally { setLoading(false); }
   };
 
   const revoke = async (id) => {
     await orgApi.revokeApiKey(orgId, id);
-    setKeys(ks => ks.map(k => k.id===id ? {...k,revoked:true} : k));
+    setKeys(ks => ks.map(k => k.id === id ? { ...k, revoked: true } : k));
   };
 
   const deleteKey = async (id) => {
@@ -784,109 +791,163 @@ export function ApiKeys() {
     } catch (e) { alert(e.response?.data?.error || 'Failed to delete key'); }
   };
 
-  // Min date for custom picker = tomorrow
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
   const minDate = tomorrow.toISOString().split('T')[0];
 
   return (
     <div>
-      <PageHeader title="API keys" description="Keys for authenticating SDK and proxy requests."
-        action={can('developer') && <Btn size="sm" onClick={()=>setShowCreate(true)}>+ New key</Btn>} />
+      <PageHeader title="API Keys" description="Keys for authenticating SDK and proxy requests. Each key can route to a specific downstream connection."
+        action={can('developer') && <Btn size="sm" onClick={() => { setShowCreate(true); resetForm(); }}>+ New key</Btn>} />
 
+      {/* Newly created key — shown once */}
       {newKey && (
-        <div style={{ padding:'1rem', borderRadius:'var(--radius)', background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.25)', marginBottom:'1rem' }}>
-          <div style={{ fontSize:12, fontWeight:500, color:'#22c55e', marginBottom:6 }}>✓ Key created — copy it now, it won't be shown again</div>
-          <code style={{ fontFamily:'monospace', fontSize:12, wordBreak:'break-all', color:'var(--text)' }}>{newKey}</code>
-          <div style={{ marginTop:8 }}>
+        <div style={{ padding: '1rem', borderRadius: 'var(--radius)', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', marginBottom: '1rem' }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: '#22c55e', marginBottom: 6 }}>✓ Key created — copy it now, it won't be shown again</div>
+          <code style={{ fontFamily: 'var(--font-mono)', fontSize: 12, wordBreak: 'break-all', color: 'var(--text)' }}>{newKey}</code>
+          <div style={{ marginTop: 8 }}>
             <Btn size="sm" variant="secondary" onClick={() => navigator.clipboard.writeText(newKey)}>Copy to clipboard</Btn>
           </div>
         </div>
       )}
 
-      <Modal open={showCreate} onClose={()=>{ setShowCreate(false); setExpiryPreset(''); setCustomDate(''); }} title="Create API key">
-        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-          <Input label="Key name" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Production backend" />
+      {/* Create modal */}
+      <Modal open={showCreate} onClose={() => { setShowCreate(false); resetForm(); }} title="Create API key">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Input label="Key name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Production backend" />
 
-          {/* Expiry selector */}
+          {/* Downstream connection picker */}
           <div>
-            <label style={{ display:'block', fontSize:12, fontWeight:500, color:'var(--text2)', marginBottom:6 }}>Expiry</label>
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text2)', marginBottom: 6 }}>
+              Downstream connection
+            </label>
+            {downstreams.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text3)', padding: '10px 12px', borderRadius: 'var(--radius)', background: 'var(--bg3)', border: '1px solid var(--border)' }}>
+                No downstream connections configured.{' '}
+                <a href="#" onClick={e => { e.preventDefault(); setShowCreate(false); }} style={{ color: 'var(--accent-light)' }}>
+                  Create one on the Downstream page first.
+                </a>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* "None" option */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius)', border: `1px solid ${downstreamId === '' ? 'var(--accent-mid)' : 'var(--border)'}`, background: downstreamId === '' ? 'var(--accent-dim)' : 'var(--bg4)', cursor: 'pointer' }}>
+                  <input type="radio" name="ds" value="" checked={downstreamId === ''} onChange={() => setDownstreamId('')} style={{ accentColor: 'var(--accent-mid)' }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>No downstream</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Requests go directly to the configured LLM provider</div>
+                  </div>
+                </label>
+                {downstreams.map(ds => (
+                  <label key={ds.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 'var(--radius)', border: `1px solid ${downstreamId === ds.id ? 'var(--accent-mid)' : 'var(--border)'}`, background: downstreamId === ds.id ? 'var(--accent-dim)' : 'var(--bg4)', cursor: 'pointer', opacity: ds.enabled ? 1 : 0.6 }}>
+                    <input type="radio" name="ds" value={ds.id} checked={downstreamId === ds.id} onChange={() => setDownstreamId(ds.id)} style={{ accentColor: 'var(--accent-mid)' }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{ds.name}</span>
+                        {!ds.enabled && <Badge text="Disabled" color="#71717a" small />}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ds.endpoint_url}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Expiry picker */}
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text2)', marginBottom: 6 }}>Expiry</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
               {EXPIRY_OPTIONS.map(opt => (
-                <button key={opt.value} onClick={()=>setExpiryPreset(opt.value)} style={{
-                  padding:'7px 0', borderRadius:'var(--radius)', fontSize:12, fontWeight:500, cursor:'pointer',
-                  border: expiryPreset===opt.value ? '1px solid var(--accent-mid)' : '1px solid var(--border)',
-                  background: expiryPreset===opt.value ? 'var(--accent-dim)' : 'var(--bg4)',
-                  color: expiryPreset===opt.value ? 'var(--accent-light)' : 'var(--text2)',
+                <button key={opt.value} onClick={() => setExpiryPreset(opt.value)} style={{
+                  padding: '7px 0', borderRadius: 'var(--radius)', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                  border: expiryPreset === opt.value ? '1px solid var(--accent-mid)' : '1px solid var(--border)',
+                  background: expiryPreset === opt.value ? 'var(--accent-dim)' : 'var(--bg4)',
+                  color: expiryPreset === opt.value ? 'var(--accent-light)' : 'var(--text2)',
                   transition: 'all .15s',
-                }}>
-                  {opt.label}
-                </button>
+                }}>{opt.label}</button>
               ))}
             </div>
           </div>
 
-          {/* Custom date picker — only shown when 'Custom date' is selected */}
           {expiryPreset === 'custom' && (
             <div>
-              <label style={{ display:'block', fontSize:12, fontWeight:500, color:'var(--text2)', marginBottom:6 }}>Select date</label>
-              <input
-                type="date"
-                value={customDate}
-                min={minDate}
-                onChange={e=>setCustomDate(e.target.value)}
-                style={{
-                  width:'100%', padding:'8px 12px', borderRadius:'var(--radius)', fontSize:13,
-                  background:'var(--bg4)', border:'1px solid var(--border)', color:'var(--text)',
-                  outline:'none', boxSizing:'border-box',
-                }}
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: 'var(--text2)', marginBottom: 6 }}>Select date</label>
+              <input type="date" value={customDate} min={minDate} onChange={e => setCustomDate(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 'var(--radius)', fontSize: 13, background: 'var(--bg4)', border: '1px solid var(--border)', color: 'var(--text)', outline: 'none', boxSizing: 'border-box' }}
               />
             </div>
           )}
 
-          <div style={{ display:'flex', gap:8, paddingTop:2 }}>
-            <Btn onClick={create} loading={loading} disabled={!name.trim() || (expiryPreset==='custom' && !customDate)}>
+          <div style={{ display: 'flex', gap: 8, paddingTop: 2 }}>
+            <Btn onClick={create} loading={loading} disabled={!name.trim() || (expiryPreset === 'custom' && !customDate)}>
               Create key
             </Btn>
-            <Btn variant="secondary" onClick={()=>{ setShowCreate(false); setExpiryPreset(''); setCustomDate(''); }}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => { setShowCreate(false); resetForm(); }}>Cancel</Btn>
           </div>
         </div>
       </Modal>
 
-      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-        {keys.map((k,i) => {
+      {/* Key list */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {keys.map((k, i) => {
           const expired = k.expires_at && new Date(k.expires_at) < new Date();
           return (
-            <div key={k.id||i} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 14px', borderRadius:'var(--radius)', background:'var(--bg4)', border:'1px solid var(--border)', opacity:(k.revoked||expired)?0.55:1 }}>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:13, fontWeight:500, marginBottom:2 }}>{k.name}</div>
-                <div style={{ fontFamily:'monospace', fontSize:12, color:'var(--text2)' }}>{k.key_prefix}</div>
-                <div style={{ fontSize:11, color:'var(--text3)', marginTop:4, display:'flex', gap:12, flexWrap:'wrap' }}>
-                  <span>Created {new Date(k.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>
-                  {k.expires_at ? (
-                    <span style={{ color: expired ? '#ef4444' : 'var(--text3)' }}>
-                      {expired ? '⚠ Expired' : '⏱'} {new Date(k.expires_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
-                      {!expired && ` (${Math.ceil((new Date(k.expires_at)-new Date())/86400000)}d left)`}
-                    </span>
-                  ) : (
-                    <span>No expiry</span>
+            <div key={k.id || i} style={{ borderRadius: 'var(--radius)', background: 'var(--bg4)', border: '1px solid var(--border)', overflow: 'hidden', opacity: (k.revoked || expired) ? 0.55 : 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{k.name}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text2)' }}>{k.key_prefix}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <span>Created {new Date(k.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    {k.expires_at ? (
+                      <span style={{ color: expired ? '#ef4444' : 'var(--text3)' }}>
+                        {expired ? '⚠ Expired' : '⏱'}{' '}
+                        {new Date(k.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        {!expired && ` (${Math.ceil((new Date(k.expires_at) - new Date()) / 86400000)}d left)`}
+                      </span>
+                    ) : <span>No expiry</span>}
+                    {k.last_used_at && <span>Last used {new Date(k.last_used_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                  {k.revoked && <Badge text="Revoked" color="#888" small />}
+                  {!k.revoked && expired && <Badge text="Expired" color="#ef4444" small />}
+                  {!k.revoked && !expired && can('developer') && (
+                    <Btn size="sm" variant="danger" onClick={() => revoke(k.id)}>Revoke</Btn>
                   )}
-                  {k.last_used_at && <span>Last used {new Date(k.last_used_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+                  {k.revoked && isSuperuser && (
+                    <Btn size="sm" variant="danger" onClick={() => deleteKey(k.id)}>Delete</Btn>
+                  )}
                 </div>
               </div>
-              <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
-                {k.revoked && <Badge text="Revoked" color="#888" small />}
-                {!k.revoked && expired && <Badge text="Expired" color="#ef4444" small />}
-                {!k.revoked && !expired && can('developer') && (
-                  <Btn size="sm" variant="danger" onClick={() => revoke(k.id)}>Revoke</Btn>
-                )}
-                {k.revoked && isSuperuser && (
-                  <Btn size="sm" variant="danger" onClick={() => deleteKey(k.id)}>Delete</Btn>
+
+              {/* Downstream connection badge */}
+              <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border)', background: 'var(--bg3)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {k.downstream_system_id ? (
+                  <>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: k.downstream_enabled ? '#22c55e' : '#71717a', boxShadow: k.downstream_enabled ? '0 0 5px rgba(34,197,94,0.5)' : 'none', flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: 'var(--text2)' }}>
+                      Routes to: <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{k.downstream_name}</strong>
+                      {!k.downstream_enabled && <span style={{ color: '#f59e0b', marginLeft: 6 }}>⚠ downstream is disabled</span>}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {k.downstream_url}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text3)', flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: 'var(--text3)' }}>No downstream — routes directly to LLM provider</span>
+                  </>
                 )}
               </div>
             </div>
           );
         })}
-        {keys.length===0 && <Empty icon="🔑" title="No API keys yet" description="Create a key to authenticate SDK calls to the PromptSense proxy." action={can('developer')&&<Btn size="sm" onClick={()=>setShowCreate(true)}>+ New key</Btn>}/>}
+        {keys.length === 0 && (
+          <Empty icon="🔑" title="No API keys yet" description="Create a key to authenticate SDK calls to the PromptSense proxy."
+            action={can('developer') && <Btn size="sm" onClick={() => setShowCreate(true)}>+ New key</Btn>} />
+        )}
       </div>
     </div>
   );
