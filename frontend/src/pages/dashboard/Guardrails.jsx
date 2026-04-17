@@ -493,51 +493,243 @@ export function Guardrails() {
 export function Policies() {
   const { currentOrg, can } = useOrg();
   const orgId = currentOrg?.org_id;
-  const [policies, setPolicies] = useState([]);
+  const [policies, setPolicies]   = useState([]);
   const [guardrails, setGuardrails] = useState([]);
+  const [editing, setEditing]     = useState(null);   // null | 'new' | policy id
+  const [draft, setDraft]         = useState({});
+  const [error, setError]         = useState('');
+  const [deleting, setDeleting]   = useState(null);   // policy id awaiting confirm
+  const [saving, setSaving]       = useState(false);
 
   useEffect(() => {
     if (!orgId) return;
-    configApi.policies(orgId).then(setPolicies).catch(()=>{});
-    configApi.guardrails(orgId).then(setGuardrails).catch(()=>{});
+    configApi.policies(orgId).then(setPolicies).catch(() => {});
+    configApi.guardrails(orgId).then(setGuardrails).catch(() => {});
   }, [orgId]);
+
+  const openNew = () => {
+    setDraft({ name: '', description: '', guardrailIds: [] });
+    setEditing('new');
+    setError('');
+  };
+
+  const openEdit = (p) => {
+    setDraft({ name: p.name, description: p.description || '', guardrailIds: p.guardrail_ids || [] });
+    setEditing(p.id);
+    setError('');
+  };
+
+  const save = async () => {
+    if (!draft.name?.trim()) { setError('Policy name is required'); return; }
+    setSaving(true); setError('');
+    try {
+      if (editing === 'new') {
+        const created = await configApi.createPolicy(orgId, { name: draft.name, description: draft.description, guardrailIds: draft.guardrailIds });
+        setPolicies(ps => [...ps, created]);
+      } else {
+        const updated = await configApi.updatePolicy(orgId, editing, { name: draft.name, description: draft.description, guardrailIds: draft.guardrailIds });
+        setPolicies(ps => ps.map(p => p.id === updated.id ? updated : p));
+      }
+      setEditing(null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to save policy');
+    }
+    setSaving(false);
+  };
 
   const activate = async (id) => {
     await configApi.updatePolicy(orgId, id, { isActive: true });
     setPolicies(ps => ps.map(p => ({ ...p, is_active: p.id === id })));
   };
 
+  const deactivate = async (id) => {
+    await configApi.updatePolicy(orgId, id, { isActive: false });
+    setPolicies(ps => ps.map(p => p.id === id ? { ...p, is_active: false } : p));
+  };
+
+  const confirmDelete = async () => {
+    await configApi.deletePolicy(orgId, deleting);
+    setPolicies(ps => ps.filter(p => p.id !== deleting));
+    setDeleting(null);
+  };
+
+  const toggleGuardrail = (gid) => {
+    setDraft(d => ({
+      ...d,
+      guardrailIds: d.guardrailIds.includes(gid)
+        ? d.guardrailIds.filter(id => id !== gid)
+        : [...d.guardrailIds, gid],
+    }));
+  };
+
   const gMap = Object.fromEntries(guardrails.map(g => [g.id, g]));
 
   return (
     <div>
-      <PageHeader title="Policies" description="Manage guardrail policy sets applied to all traffic." />
-      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+      <PageHeader
+        title="Policies"
+        description="Group guardrails into named policy sets. Activate a policy to apply its rules to all traffic."
+        action={can('developer') && <Btn size="sm" onClick={openNew}>+ New policy</Btn>}
+      />
+
+      {/* ── Policy list ── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {policies.map(p => (
-          <Card key={p.id}>
-            <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
-              <div style={{ flex:1 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
-                  <span style={{ fontSize:14, fontWeight:500 }}>{p.name}</span>
-                  {p.is_active && <Badge text="Active" color="var(--c-green)" />}
-                </div>
-                <div style={{ fontSize:12, color:'var(--c-text2)', marginBottom:8 }}>{p.description}</div>
-                <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                  {(p.guardrail_ids||[]).map(gid => {
-                    const g = gMap[gid];
-                    return g ? <Badge key={gid} text={g.name} color={g.color||'#888'} small /> : null;
-                  })}
-                </div>
+          <PolicyCard
+            key={p.id}
+            policy={p}
+            gMap={gMap}
+            canEdit={can('developer')}
+            onEdit={() => openEdit(p)}
+            onActivate={() => activate(p.id)}
+            onDeactivate={() => deactivate(p.id)}
+            onDelete={() => setDeleting(p.id)}
+          />
+        ))}
+        {policies.length === 0 && (
+          <Empty
+            icon="📋"
+            title="No policies yet"
+            description="Create a policy set to bundle guardrails for a specific use case — e.g. 'HIPAA Input Checks' or 'Customer-facing Outputs'."
+            action={can('developer') && <Btn size="sm" onClick={openNew}>Create your first policy</Btn>}
+          />
+        )}
+      </div>
+
+      {/* ── Create / Edit modal ── */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'New policy' : 'Edit policy'} width={540}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Alert type="error" message={error} />
+
+          <Input label="Policy name" value={draft.name || ''} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="e.g. HIPAA Input Checks" />
+          <Input label="Description (optional)" value={draft.description || ''} onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} placeholder="Describe what this policy enforces…" />
+
+          {/* Guardrail picker */}
+          <div>
+            <label style={{ fontSize: 11, color: 'var(--c-text2)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 8 }}>
+              Guardrails in this policy
+              <span style={{ marginLeft: 6, fontWeight: 400, textTransform: 'none', fontSize: 11, color: 'var(--c-text3)' }}>
+                {draft.guardrailIds?.length || 0} selected
+              </span>
+            </label>
+            {guardrails.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--c-text3)', padding: '10px 0' }}>
+                No guardrails yet — create some on the Guardrails page first.
               </div>
-              {can('developer') && !p.is_active && (
-                <Btn size="sm" variant="secondary" onClick={() => activate(p.id)}>Activate</Btn>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
+              {guardrails.map(g => {
+                const selected = draft.guardrailIds?.includes(g.id);
+                return (
+                  <div
+                    key={g.id}
+                    onClick={() => toggleGuardrail(g.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                      borderRadius: 'var(--radius)', cursor: 'pointer',
+                      background: selected ? 'var(--c-purple)0d' : 'var(--c-bg2)',
+                      border: selected ? '1px solid var(--c-purple)44' : '0.5px solid var(--c-border)',
+                      transition: 'all var(--transition)',
+                    }}
+                  >
+                    {/* Checkbox */}
+                    <div style={{
+                      width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                      border: selected ? 'none' : '1.5px solid var(--c-border2)',
+                      background: selected ? 'var(--c-purple)' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {selected && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5 4,7.5 8.5,2.5" stroke="#fff" strokeWidth="1.5" fill="none" strokeLinecap="round"/></svg>}
+                    </div>
+                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: g.color || '#7F77DD', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>{g.name}</div>
+                      <div style={{ fontSize: 10, color: 'var(--c-text3)' }}>{g.type} · {g.severity} · {g.action}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <Btn onClick={save} loading={saving}>Save policy</Btn>
+            <Btn variant="secondary" onClick={() => setEditing(null)}>Cancel</Btn>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Delete confirm ── */}
+      <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete policy?" width={400}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ fontSize: 13, color: 'var(--c-text2)' }}>
+            This will permanently delete the policy. Individual guardrails won't be affected.
+          </p>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn variant="danger" onClick={confirmDelete}>Delete</Btn>
+            <Btn variant="secondary" onClick={() => setDeleting(null)}>Cancel</Btn>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function PolicyCard({ policy: p, gMap, canEdit, onEdit, onActivate, onDeactivate, onDelete }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const guardrailCount = (p.guardrail_ids || []).length;
+  return (
+    <Card style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        {/* Active indicator bar */}
+        <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 3, background: p.is_active ? 'var(--c-green)' : 'var(--c-border2)', flexShrink: 0, minHeight: 40 }} />
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Header */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
+            {p.is_active
+              ? <Badge text="● Active" color="var(--c-green)" />
+              : <Badge text="Inactive" color="var(--c-text3)" />
+            }
+            <span style={{ fontSize: 11, color: 'var(--c-text3)' }}>{guardrailCount} guardrail{guardrailCount !== 1 ? 's' : ''}</span>
+          </div>
+
+          {/* Description */}
+          {p.description && (
+            <div style={{ fontSize: 12, color: 'var(--c-text2)', marginBottom: 8 }}>{p.description}</div>
+          )}
+
+          {/* Guardrail badges */}
+          {guardrailCount > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {(p.guardrail_ids || []).slice(0, 8).map(gid => {
+                const g = gMap[gid];
+                return g ? <Badge key={gid} text={g.name} color={g.color || '#888'} small /> : null;
+              })}
+              {guardrailCount > 8 && (
+                <span style={{ fontSize: 10, color: 'var(--c-text3)', alignSelf: 'center' }}>+{guardrailCount - 8} more</span>
               )}
             </div>
-          </Card>
-        ))}
-        {policies.length === 0 && <Empty icon="📋" title="No policies yet" description="Create a policy set to group guardrails for different use cases." />}
+          )}
+          {guardrailCount === 0 && (
+            <span style={{ fontSize: 11, color: 'var(--c-text3)', fontStyle: 'italic' }}>No guardrails assigned</span>
+          )}
+        </div>
+
+        {/* Actions */}
+        {canEdit && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+            {p.is_active
+              ? <Btn size="sm" variant="secondary" onClick={onDeactivate}>Deactivate</Btn>
+              : <Btn size="sm" variant="secondary" onClick={onActivate}>Activate</Btn>
+            }
+            <Btn size="sm" variant="secondary" onClick={onEdit}>Edit</Btn>
+            <Btn size="sm" variant="danger" onClick={onDelete}>Delete</Btn>
+          </div>
+        )}
       </div>
-    </div>
+    </Card>
   );
 }
 
