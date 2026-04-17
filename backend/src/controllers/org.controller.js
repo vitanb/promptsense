@@ -19,10 +19,12 @@ async function listMembers(req, res) {
 async function inviteMember(req, res) {
   const { email, role = 'user' } = req.body;
 
-  // Check member limit
-  const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM memberships WHERE org_id=$1 AND active=true', [req.orgId]);
-  if (req.org.members_limit > 0 && parseInt(count) >= req.org.members_limit) {
-    return res.status(402).json({ error: 'Member limit reached for your plan. Upgrade to add more.' });
+  // Check member limit — superusers are exempt
+  if (!req.isSuperuser) {
+    const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM memberships WHERE org_id=$1 AND active=true', [req.orgId]);
+    if (req.org.members_limit > 0 && parseInt(count) >= req.org.members_limit) {
+      return res.status(402).json({ error: 'Member limit reached for your plan. Upgrade to add more.' });
+    }
   }
 
   // Find or create user

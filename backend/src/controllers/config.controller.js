@@ -30,10 +30,12 @@ async function updateGuardrail(req, res) {
 
 async function createGuardrail(req, res) {
   const { name, description, type, severity, action, pattern, color, countries } = req.body;
-  // Check plan limit
-  const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM guardrails WHERE org_id=$1', [req.orgId]);
-  if (req.org.guardrails_limit > 0 && parseInt(count) >= req.org.guardrails_limit) {
-    return res.status(402).json({ error: 'Guardrail limit reached for your plan. Upgrade to add more.' });
+  // Check plan limit — superusers are exempt
+  if (!req.isSuperuser) {
+    const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM guardrails WHERE org_id=$1', [req.orgId]);
+    if (req.org.guardrails_limit > 0 && parseInt(count) >= req.org.guardrails_limit) {
+      return res.status(402).json({ error: 'Guardrail limit reached for your plan. Upgrade to add more.' });
+    }
   }
   const { rows: [g] } = await query(
     `INSERT INTO guardrails (org_id,name,description,type,severity,action,pattern,color,enabled,countries)
@@ -135,9 +137,11 @@ async function listWebhooks(req, res) {
 
 async function createWebhook(req, res) {
   const { name, url, events, active } = req.body;
-  const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM webhooks WHERE org_id=$1', [req.orgId]);
-  if (req.org.webhooks_limit > 0 && parseInt(count) >= req.org.webhooks_limit) {
-    return res.status(402).json({ error: 'Webhook limit reached for your plan.' });
+  if (!req.isSuperuser) {
+    const { rows: [{ count }] } = await query('SELECT COUNT(*) FROM webhooks WHERE org_id=$1', [req.orgId]);
+    if (req.org.webhooks_limit > 0 && parseInt(count) >= req.org.webhooks_limit) {
+      return res.status(402).json({ error: 'Webhook limit reached for your plan.' });
+    }
   }
   const secret = require('crypto').randomBytes(20).toString('hex');
   const { rows: [w] } = await query(
