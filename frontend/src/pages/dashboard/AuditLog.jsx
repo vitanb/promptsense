@@ -716,6 +716,25 @@ export function Settings() {
 }
 
 // ── API KEYS ──────────────────────────────────────────────────────────────────
+// Preset expiry options
+const EXPIRY_OPTIONS = [
+  { label: 'No expiry',  value: '' },
+  { label: '7 days',     value: '7d' },
+  { label: '30 days',    value: '30d' },
+  { label: '90 days',    value: '90d' },
+  { label: '1 year',     value: '365d' },
+  { label: 'Custom date',value: 'custom' },
+];
+
+function expiryLabel(expiresAt) {
+  if (!expiresAt) return 'No expiry';
+  const d = new Date(expiresAt);
+  const now = new Date();
+  if (d < now) return 'Expired';
+  const days = Math.ceil((d - now) / 86400000);
+  return `Expires ${d.toLocaleDateString()} (${days}d left)`;
+}
+
 export function ApiKeys() {
   const { currentOrg, can } = useOrg();
   const orgId = currentOrg?.org_id;
@@ -723,17 +742,31 @@ export function ApiKeys() {
   const [showCreate, setShowCreate] = useState(false);
   const [newKey, setNewKey] = useState('');
   const [name, setName] = useState('');
+  const [expiryPreset, setExpiryPreset] = useState('');
+  const [customDate, setCustomDate] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => { if (orgId) orgApi.apiKeys(orgId).then(setKeys).catch(()=>{}); }, [orgId]);
 
+  // Compute ISO expiry date from the selected preset / custom date
+  const resolvedExpiry = () => {
+    if (!expiryPreset || expiryPreset === '') return null;
+    if (expiryPreset === 'custom') return customDate ? new Date(customDate).toISOString() : null;
+    const days = parseInt(expiryPreset);
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toISOString();
+  };
+
   const create = async () => {
     setLoading(true);
     try {
-      const { key, prefix } = await orgApi.createApiKey(orgId, { name });
+      const expiresAt = resolvedExpiry();
+      const { key, prefix } = await orgApi.createApiKey(orgId, { name, expiresAt });
       setNewKey(key);
-      setKeys(ks => [...ks, { key_prefix:prefix, name, created_at:new Date().toISOString(), revoked:false }]);
-      setName('');
+      setKeys(ks => [...ks, { key_prefix:prefix, name, created_at:new Date().toISOString(), expires_at:expiresAt, revoked:false }]);
+      setName(''); setExpiryPreset(''); setCustomDate('');
+      setShowCreate(false);
     } catch (e) { alert(e.response?.data?.error||'Failed to create key'); }
     finally { setLoading(false); }
   };
@@ -743,47 +776,105 @@ export function ApiKeys() {
     setKeys(ks => ks.map(k => k.id===id ? {...k,revoked:true} : k));
   };
 
+  // Min date for custom picker = tomorrow
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  const minDate = tomorrow.toISOString().split('T')[0];
+
   return (
     <div>
       <PageHeader title="API keys" description="Keys for authenticating SDK and proxy requests."
         action={can('developer') && <Btn size="sm" onClick={()=>setShowCreate(true)}>+ New key</Btn>} />
 
       {newKey && (
-        <div style={{ padding:'1rem', borderRadius:'var(--radius)', background:'var(--c-green)12', border:'0.5px solid var(--c-green)44', marginBottom:'1rem' }}>
-          <div style={{ fontSize:12, fontWeight:500, color:'var(--c-green)', marginBottom:6 }}>✓ Key created — copy it now, it won't be shown again</div>
-          <code style={{ fontFamily:'monospace', fontSize:12, wordBreak:'break-all' }}>{newKey}</code>
+        <div style={{ padding:'1rem', borderRadius:'var(--radius)', background:'rgba(34,197,94,0.08)', border:'1px solid rgba(34,197,94,0.25)', marginBottom:'1rem' }}>
+          <div style={{ fontSize:12, fontWeight:500, color:'#22c55e', marginBottom:6 }}>✓ Key created — copy it now, it won't be shown again</div>
+          <code style={{ fontFamily:'monospace', fontSize:12, wordBreak:'break-all', color:'var(--text)' }}>{newKey}</code>
           <div style={{ marginTop:8 }}>
-            <Btn size="sm" variant="secondary" onClick={() => { navigator.clipboard.writeText(newKey); }}>Copy to clipboard</Btn>
+            <Btn size="sm" variant="secondary" onClick={() => navigator.clipboard.writeText(newKey)}>Copy to clipboard</Btn>
           </div>
         </div>
       )}
 
-      <Modal open={showCreate} onClose={()=>setShowCreate(false)} title="Create API key">
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      <Modal open={showCreate} onClose={()=>{ setShowCreate(false); setExpiryPreset(''); setCustomDate(''); }} title="Create API key">
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
           <Input label="Key name" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Production backend" />
-          <div style={{ display:'flex', gap:8 }}>
-            <Btn onClick={create} loading={loading} disabled={!name.trim()}>Create key</Btn>
-            <Btn variant="secondary" onClick={()=>setShowCreate(false)}>Cancel</Btn>
+
+          {/* Expiry selector */}
+          <div>
+            <label style={{ display:'block', fontSize:12, fontWeight:500, color:'var(--text2)', marginBottom:6 }}>Expiry</label>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:6 }}>
+              {EXPIRY_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={()=>setExpiryPreset(opt.value)} style={{
+                  padding:'7px 0', borderRadius:'var(--radius)', fontSize:12, fontWeight:500, cursor:'pointer',
+                  border: expiryPreset===opt.value ? '1px solid var(--accent-mid)' : '1px solid var(--border)',
+                  background: expiryPreset===opt.value ? 'var(--accent-dim)' : 'var(--bg4)',
+                  color: expiryPreset===opt.value ? 'var(--accent-light)' : 'var(--text2)',
+                  transition: 'all .15s',
+                }}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom date picker — only shown when 'Custom date' is selected */}
+          {expiryPreset === 'custom' && (
+            <div>
+              <label style={{ display:'block', fontSize:12, fontWeight:500, color:'var(--text2)', marginBottom:6 }}>Select date</label>
+              <input
+                type="date"
+                value={customDate}
+                min={minDate}
+                onChange={e=>setCustomDate(e.target.value)}
+                style={{
+                  width:'100%', padding:'8px 12px', borderRadius:'var(--radius)', fontSize:13,
+                  background:'var(--bg4)', border:'1px solid var(--border)', color:'var(--text)',
+                  outline:'none', boxSizing:'border-box',
+                }}
+              />
+            </div>
+          )}
+
+          <div style={{ display:'flex', gap:8, paddingTop:2 }}>
+            <Btn onClick={create} loading={loading} disabled={!name.trim() || (expiryPreset==='custom' && !customDate)}>
+              Create key
+            </Btn>
+            <Btn variant="secondary" onClick={()=>{ setShowCreate(false); setExpiryPreset(''); setCustomDate(''); }}>Cancel</Btn>
           </div>
         </div>
       </Modal>
 
       <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-        {keys.map((k,i) => (
-          <div key={k.id||i} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 14px', borderRadius:'var(--radius)', background:'var(--c-bg)', border:'0.5px solid var(--c-border)', opacity:k.revoked?0.5:1 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:13, fontWeight:500, marginBottom:2 }}>{k.name}</div>
-              <div style={{ fontFamily:'monospace', fontSize:12, color:'var(--c-text2)' }}>{k.key_prefix}</div>
-              <div style={{ fontSize:10, color:'var(--c-text3)', marginTop:2 }}>
-                Created {new Date(k.created_at).toLocaleDateString()}
-                {k.last_used_at && ` · Last used ${new Date(k.last_used_at).toLocaleDateString()}`}
+        {keys.map((k,i) => {
+          const expired = k.expires_at && new Date(k.expires_at) < new Date();
+          return (
+            <div key={k.id||i} style={{ display:'flex', alignItems:'center', gap:12, padding:'11px 14px', borderRadius:'var(--radius)', background:'var(--bg4)', border:'1px solid var(--border)', opacity:(k.revoked||expired)?0.55:1 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:500, marginBottom:2 }}>{k.name}</div>
+                <div style={{ fontFamily:'monospace', fontSize:12, color:'var(--text2)' }}>{k.key_prefix}</div>
+                <div style={{ fontSize:11, color:'var(--text3)', marginTop:4, display:'flex', gap:12, flexWrap:'wrap' }}>
+                  <span>Created {new Date(k.created_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>
+                  {k.expires_at ? (
+                    <span style={{ color: expired ? '#ef4444' : 'var(--text3)' }}>
+                      {expired ? '⚠ Expired' : '⏱'} {new Date(k.expires_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}
+                      {!expired && ` (${Math.ceil((new Date(k.expires_at)-new Date())/86400000)}d left)`}
+                    </span>
+                  ) : (
+                    <span>No expiry</span>
+                  )}
+                  {k.last_used_at && <span>Last used {new Date(k.last_used_at).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' })}</span>}
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:6, alignItems:'center', flexShrink:0 }}>
+                {k.revoked && <Badge text="Revoked" color="#888" small />}
+                {!k.revoked && expired && <Badge text="Expired" color="#ef4444" small />}
+                {!k.revoked && !expired && can('developer') && (
+                  <Btn size="sm" variant="danger" onClick={() => revoke(k.id)}>Revoke</Btn>
+                )}
               </div>
             </div>
-            {k.revoked ? <Badge text="Revoked" color="#888" small /> : (
-              can('developer') && <Btn size="sm" variant="danger" onClick={() => revoke(k.id)}>Revoke</Btn>
-            )}
-          </div>
-        ))}
+          );
+        })}
         {keys.length===0 && <Empty icon="🔑" title="No API keys yet" description="Create a key to authenticate SDK calls to the PromptSense proxy." action={can('developer')&&<Btn size="sm" onClick={()=>setShowCreate(true)}>+ New key</Btn>}/>}
       </div>
     </div>
