@@ -202,17 +202,21 @@ async function revokeApiKey(req, res) {
 
 // ── ORG SETTINGS (privacy / data) ────────────────────────────────────────────
 
+const VALID_COMPLIANCE_MODES = new Set(['hipaa', 'financial', 'legal', 'government', null]);
+
 // Allowed setting keys and their validators — whitelist prevents arbitrary JSONB writes
 const SETTINGS_SCHEMA = {
   store_prompts:       (v) => typeof v === 'boolean',
   retention_days:      (v) => v === null || (Number.isInteger(v) && v >= 1 && v <= 3650),
   mask_pii_in_logs:    (v) => typeof v === 'boolean',
+  // compliance_mode: null = off, or one of the industry mode keys
+  compliance_mode:     (v) => v === null || (typeof v === 'string' && VALID_COMPLIANCE_MODES.has(v)),
 };
 
 async function getSettings(req, res) {
   const { rows: [org] } = await query('SELECT settings FROM organizations WHERE id=$1', [req.orgId]);
   // Merge stored settings with defaults so callers always get a complete object
-  const defaults = { store_prompts: true, retention_days: null, mask_pii_in_logs: false };
+  const defaults = { store_prompts: true, retention_days: null, mask_pii_in_logs: false, compliance_mode: null };
   res.json({ ...defaults, ...(org?.settings || {}) });
 }
 
@@ -235,8 +239,16 @@ async function updateSettings(req, res) {
      WHERE id = $2 RETURNING settings`,
     [JSON.stringify(patch), req.orgId]
   );
-  const defaults = { store_prompts: true, retention_days: null, mask_pii_in_logs: false };
+  const defaults = { store_prompts: true, retention_days: null, mask_pii_in_logs: false, compliance_mode: null };
   res.json({ ...defaults, ...(org?.settings || {}) });
 }
 
-module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey, getSettings, updateSettings };
+// ── COMPLIANCE TEMPLATES ──────────────────────────────────────────────────────
+const { getIndustryTemplates } = require('../utils/compliance');
+
+/** GET /orgs/:orgId/settings/compliance-templates — returns all industry template definitions */
+async function getComplianceTemplates(req, res) {
+  res.json(getIndustryTemplates());
+}
+
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listApiKeys, createApiKey, revokeApiKey, getSettings, updateSettings, getComplianceTemplates };

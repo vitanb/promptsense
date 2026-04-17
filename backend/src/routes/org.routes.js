@@ -56,4 +56,7 @@ router.patch('/branding', requireRole('administrator'), ctrl.updateBranding);
 router.get('/settings',   requireRole('administrator'), ctrl.getSettings);
 router.patch('/settings', requireRole('administrator'), ctrl.updateSettings);
 
+// Industry compliance templates (read-only — all authenticated members can browse)
+router.get('/settings/compliance-templates', ctrl.getComplianceTemplates);
+
 module.exports = router;

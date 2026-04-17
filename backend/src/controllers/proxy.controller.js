@@ -2,6 +2,7 @@ const axios = require('axios');
 const { query } = require('../db/pool');
 const { decrypt } = require('../utils/encryption');
 const { renderBodyTemplate } = require('../middleware/validate');
+const { runComplianceRules } = require('../utils/compliance');
 const logger = require('../utils/logger');
 
 // ── Country detection ─────────────────────────────────────────────────────────
@@ -104,7 +105,18 @@ async function proxyPrompt(req, res) {
   if (!withinQuota) return res.status(429).json({ error: 'Monthly request quota exceeded. Upgrade your plan.' });
 
   // ── Step 1: Input guardrails ────────────────────────────────────────────────
+  const complianceMode = req.org?.settings?.compliance_mode || null;
   const inputFlags = await runGuardrails(req.orgId, prompt, 'input', countryCode);
+
+  // Merge compliance-mode hard rules (always enforced when mode is active)
+  if (complianceMode) {
+    const complianceInputFlags = runComplianceRules(complianceMode, prompt, 'input');
+    for (const cf of complianceInputFlags) {
+      // Avoid duplicates if org has also added the same rule as a DB guardrail
+      if (!inputFlags.some(f => f.name === cf.name)) inputFlags.push(cf);
+    }
+  }
+
   const blocked = inputFlags.filter(g => g.action === 'block');
 
   // Respect org-level prompt storage preference (default: store)
@@ -341,6 +353,15 @@ async function proxyPrompt(req, res) {
 
   // ── Step 5: Output guardrails ──────────────────────────────────────────────
   const outputFlags = await runGuardrails(req.orgId, raw, 'output', countryCode);
+
+  // Merge compliance-mode hard rules on output too
+  if (complianceMode) {
+    const complianceOutputFlags = runComplianceRules(complianceMode, raw, 'output');
+    for (const cf of complianceOutputFlags) {
+      if (!outputFlags.some(f => f.name === cf.name)) outputFlags.push(cf);
+    }
+  }
+
   const outBlocked = outputFlags.filter(g => g.action === 'block');
   const finalOutput = outBlocked.length > 0
     ? `[Output blocked: ${outBlocked.map(g => g.name).join(', ')}]`

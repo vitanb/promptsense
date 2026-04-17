@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useOrg } from '../../context/OrgContext';
-import { configApi } from '../../services/api';
+import { configApi, orgApi } from '../../services/api';
 import { Card, Btn, Input, Select, Toggle, Alert, Badge, PageHeader, Modal, Empty } from '../../components/UI';
 
 const SEVERITY_COLORS = { critical:'#E24B4A', high:'#D85A30', medium:'#BA7517', low:'#639922' };
@@ -179,10 +179,22 @@ export function Guardrails() {
   const [error, setError] = useState('');
   const [testInput, setTestInput] = useState('');
   const [testResult, setTestResult] = useState(null);
-  const [tab, setTab] = useState('custom'); // 'custom' | 'country'
+  const [tab, setTab] = useState('custom'); // 'custom' | 'country' | 'industry'
   const [countryFilter, setCountryFilter] = useState('');
 
+  // Industry compliance state
+  const [industryTemplates, setIndustryTemplates] = useState([]);
+  const [complianceMode, setComplianceMode] = useState(null);
+  const [complianceSaving, setComplianceSaving] = useState(false);
+  const [expandedIndustry, setExpandedIndustry] = useState(null);
+
   useEffect(() => { if (orgId) configApi.guardrails(orgId).then(setGuardrails).catch(() => {}); }, [orgId]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    orgApi.getComplianceTemplates(orgId).then(setIndustryTemplates).catch(() => {});
+    orgApi.getSettings(orgId).then(s => setComplianceMode(s.compliance_mode || null)).catch(() => {});
+  }, [orgId]);
 
   const toggle = async (g) => {
     const updated = await configApi.updateGuardrail(orgId, g.id, { enabled: !g.enabled });
@@ -205,6 +217,28 @@ export function Guardrails() {
       const created = await configApi.createGuardrail(orgId, { ...tpl, enabled: true });
       setGuardrails(gs => [...gs, created]);
     } catch (err) { setError(err.response?.data?.error || 'Failed to add guardrail'); }
+  };
+
+  const setMode = async (mode) => {
+    setComplianceSaving(true);
+    try {
+      await orgApi.updateSettings(orgId, { compliance_mode: mode });
+      setComplianceMode(mode);
+    } catch (_) {}
+    setComplianceSaving(false);
+  };
+
+  const importAllRules = async (industry) => {
+    setError('');
+    const tpl = industryTemplates.find(t => t.id === industry);
+    if (!tpl) return;
+    for (const rule of tpl.rules) {
+      if (existingNames.has(rule.name)) continue;
+      try {
+        const created = await configApi.createGuardrail(orgId, { ...rule, enabled: true, countries: [] });
+        setGuardrails(gs => [...gs, created]);
+      } catch (_) {}
+    }
   };
 
   const testPattern = () => {
@@ -239,6 +273,10 @@ export function Guardrails() {
       {/* ── Tab bar ── */}
       <div style={{ display:'flex', gap:4, marginBottom:'1.5rem', background:'var(--c-bg2)', borderRadius:8, padding:4, width:'fit-content', border:'0.5px solid var(--c-border)' }}>
         <button style={tabStyle(tab==='custom')} onClick={() => setTab('custom')}>My Guardrails</button>
+        <button style={tabStyle(tab==='industry')} onClick={() => setTab('industry')}>
+          🏢 Industry Templates
+          {complianceMode && <span style={{ marginLeft:6, fontSize:10, padding:'1px 6px', borderRadius:10, background:'#05966922', color:'#059669', border:'0.5px solid #05966944' }}>Active</span>}
+        </button>
         <button style={tabStyle(tab==='country')} onClick={() => setTab('country')}>🌍 Country Templates</button>
       </div>
 
@@ -297,6 +335,110 @@ export function Guardrails() {
           </div>
         </div>
       ))}
+
+      {/* ── Industry Templates tab ── */}
+      {tab === 'industry' && (
+        <div>
+          {/* Active compliance mode banner */}
+          <div style={{ marginBottom:'1.25rem', padding:'14px 18px', borderRadius:'var(--radius)', background: complianceMode ? '#05966910' : 'var(--c-bg2)', border: complianceMode ? '1px solid #05966944' : '0.5px solid var(--c-border)', display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:13, fontWeight:600, marginBottom:3 }}>
+                {complianceMode ? `Compliance Mode: ${industryTemplates.find(t=>t.id===complianceMode)?.icon} ${industryTemplates.find(t=>t.id===complianceMode)?.label}` : 'No compliance mode active'}
+              </div>
+              <div style={{ fontSize:11, color:'var(--c-text2)' }}>
+                {complianceMode
+                  ? 'Hard compliance rules are enforced at the proxy level on every request, regardless of individual guardrail settings.'
+                  : 'Activate a compliance mode to enforce industry-grade rules on every request for your entire organisation.'}
+              </div>
+            </div>
+            {complianceMode && can('administrator') && (
+              <Btn size="sm" variant="secondary" disabled={complianceSaving} onClick={() => setMode(null)}>
+                {complianceSaving ? 'Saving…' : 'Deactivate'}
+              </Btn>
+            )}
+          </div>
+
+          <Alert type="error" message={error} />
+
+          {/* Industry cards */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(300px, 1fr))', gap:'1rem' }}>
+            {industryTemplates.map(tpl => {
+              const isActive = complianceMode === tpl.id;
+              const allImported = tpl.rules.every(r => existingNames.has(r.name));
+              return (
+                <div key={tpl.id} style={{ borderRadius:'var(--radius)', border: isActive ? `1.5px solid ${tpl.color}` : '0.5px solid var(--c-border)', background:'var(--c-bg)', overflow:'hidden' }}>
+                  {/* Card header */}
+                  <div style={{ padding:'14px 16px', borderBottom:'0.5px solid var(--c-border)', display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ fontSize:24 }}>{tpl.icon}</span>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:8 }}>
+                        {tpl.label}
+                        {isActive && <span style={{ fontSize:10, padding:'2px 7px', borderRadius:10, background:tpl.color, color:'#fff', fontWeight:500 }}>ACTIVE</span>}
+                      </div>
+                      <div style={{ fontSize:10, color:'var(--c-text3)', marginTop:2 }}>{tpl.ruleCount} rules</div>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div style={{ padding:'10px 16px', fontSize:11, color:'var(--c-text2)', lineHeight:1.55, borderBottom:'0.5px solid var(--c-border)' }}>
+                    {tpl.description}
+                  </div>
+
+                  {/* Standards badges */}
+                  <div style={{ padding:'8px 16px', display:'flex', flexWrap:'wrap', gap:4, borderBottom:'0.5px solid var(--c-border)' }}>
+                    {tpl.standards.map(s => (
+                      <span key={s} style={{ fontSize:9.5, padding:'2px 7px', borderRadius:10, background:`${tpl.color}18`, color:tpl.color, border:`0.5px solid ${tpl.color}44`, fontWeight:500 }}>{s}</span>
+                    ))}
+                  </div>
+
+                  {/* Rule preview (expandable) */}
+                  <div style={{ borderBottom:'0.5px solid var(--c-border)' }}>
+                    <button onClick={() => setExpandedIndustry(expandedIndustry === tpl.id ? null : tpl.id)}
+                      style={{ width:'100%', padding:'8px 16px', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--c-text2)', fontWeight:500 }}>
+                      <span>View {tpl.ruleCount} rules</span>
+                      <span>{expandedIndustry === tpl.id ? '▲' : '▼'}</span>
+                    </button>
+                    {expandedIndustry === tpl.id && (
+                      <div style={{ paddingBottom:8 }}>
+                        {tpl.rules.map(r => (
+                          <div key={r.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 16px', opacity: existingNames.has(r.name) ? 0.5 : 1 }}>
+                            <div style={{ width:6, height:6, borderRadius:'50%', background: r.action==='block' ? '#E24B4A' : r.action==='warn' ? '#BA7517' : '#639922', flexShrink:0 }} />
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:11, fontWeight:500 }}>{r.name}</div>
+                              <div style={{ fontSize:10, color:'var(--c-text3)' }}>{r.description}</div>
+                            </div>
+                            <span style={{ fontSize:9.5, padding:'1px 5px', borderRadius:3, background:'var(--c-bg2)', color:'var(--c-text3)', flexShrink:0 }}>{r.action}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ padding:'10px 16px', display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+                    {can('administrator') && (
+                      isActive
+                        ? <Btn size="sm" variant="secondary" disabled={complianceSaving} onClick={() => setMode(null)}>Deactivate</Btn>
+                        : <Btn size="sm" disabled={complianceSaving} onClick={() => setMode(tpl.id)} style={{ background:tpl.color, color:'#fff', borderColor:tpl.color }}>Activate</Btn>
+                    )}
+                    {can('developer') && (
+                      allImported
+                        ? <span style={{ fontSize:11, color:'var(--c-text3)' }}>All rules imported</span>
+                        : <Btn size="sm" variant="secondary" onClick={() => importAllRules(tpl.id)}>Import as guardrails</Btn>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Explanatory note */}
+          <div style={{ marginTop:'1.25rem', padding:'10px 14px', borderRadius:'var(--radius)', background:'var(--c-bg2)', border:'0.5px solid var(--c-border)', fontSize:11, color:'var(--c-text2)', lineHeight:1.6 }}>
+            <strong style={{ color:'var(--c-text)' }}>Activate</strong> enforces rules at the proxy level on every request (recommended — cannot be bypassed).{' '}
+            <strong style={{ color:'var(--c-text)' }}>Import as guardrails</strong> adds rules as editable org guardrails for custom tuning.
+          </div>
+        </div>
+      )}
 
       {/* ── Country Templates tab ── */}
       {tab === 'country' && (
