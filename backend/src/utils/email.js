@@ -77,4 +77,36 @@ async function sendInviteEmail(invitee, org, inviter, token) {
   });
 }
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail };
+async function sendActivationNudgeEmail(user, orgName, completed) {
+  const steps = [
+    { done: completed.providerConnected, label: 'Connect an LLM provider', href: `${BASE}/dashboard/integrations` },
+    { done: completed.firstRequestSent,  label: 'Send your first proxy request', href: `${BASE}/dashboard/playground` },
+    { done: completed.guardrailFired,    label: 'See a guardrail in action', href: `${BASE}/dashboard/playground` },
+  ];
+  const remaining = steps.filter(s => !s.done);
+  const stepsHtml = remaining.map(s =>
+    `<li style="margin-bottom:8px"><a href="${s.href}" style="color:#7c3aed;font-weight:500">${s.label}</a></li>`
+  ).join('');
+
+  await sendEmail({
+    to: user.email,
+    subject: `You're almost set up on PromptSense — ${remaining.length} step${remaining.length > 1 ? 's' : ''} left`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:auto;padding:32px">
+        <h2 style="margin-bottom:8px">Your guardrails aren't live yet, ${user.full_name?.split(' ')[0] || 'there'}</h2>
+        <p style="color:#666;line-height:1.6">You signed up for <strong>${orgName}</strong> on PromptSense but haven't finished setup.
+        It only takes a few minutes to get your first guardrail protecting your LLM calls.</p>
+        <p style="color:#444;font-weight:500;margin-top:20px">Still to do:</p>
+        <ul style="padding-left:20px;color:#444">${stepsHtml}</ul>
+        <a href="${BASE}/dashboard/onboarding" style="display:inline-block;margin-top:20px;padding:12px 24px;background:#7c3aed;color:#fff;border-radius:8px;text-decoration:none;font-weight:500">
+          Complete setup →
+        </a>
+        <p style="margin-top:28px;font-size:12px;color:#999">
+          Need help? Reply to this email — we read every one.
+        </p>
+      </div>
+    `,
+  });
+}
+
+module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendInviteEmail, sendActivationNudgeEmail };

@@ -2,7 +2,7 @@ import { Outlet, NavLink, useNavigate, Navigate, useLocation } from 'react-route
 import { useAuth } from '../../context/AuthContext';
 import { useOrg } from '../../context/OrgContext';
 import { useEffect, useState } from 'react';
-import { orgApi, configApi } from '../../services/api';
+import { orgApi } from '../../services/api';
 import { Spinner } from '../../components/UI';
 
 // ── Nav definition ─────────────────────────────────────────────────────────
@@ -17,6 +17,7 @@ const NAV = [
   { to: 'policies',     icon: PolicyIcon,    label: 'Policies',     trialOk: false },
   { to: 'templates',    icon: TemplateIcon,  label: 'Templates',    trialOk: false },
   { to: 'webhooks',     icon: BellIcon,      label: 'Webhooks',     trialOk: false },
+  { to: 'slack',        icon: SlackIcon,     label: 'Slack',        trialOk: false },
   { to: 'downstream',   icon: DownstreamIcon,label: 'Downstream',   trialOk: false, minRole: 'developer' },
   null,
   { to: 'analytics',    icon: BarChartIcon,  label: 'Analytics',    trialOk: false },
@@ -35,33 +36,21 @@ const NAV = [
 const TRIAL_ALLOWED   = new Set(['playground', 'integrations', 'onboarding', 'billing']);
 const EXPIRED_ALLOWED = new Set(['billing']);
 
-// ── Onboarding progress hook ──────────────────────────────────────────────
-function useOnboardingProgress(orgId, isTrialUser = false) {
+// ── Activation progress hook ──────────────────────────────────────────────
+function useActivationProgress(orgId) {
   const [progress, setProgress] = useState(null);
   useEffect(() => {
     if (!orgId) return;
-    if (localStorage.getItem(`ps_onboarding_skip_${orgId}`)) { setProgress(null); return; }
     let cancelled = false;
-    const grPromise = isTrialUser
-      ? Promise.resolve({ status: 'skipped', value: [] })
-      : configApi.guardrails(orgId).then(v => ({ status: 'fulfilled', value: v })).catch(() => ({ status: 'rejected' }));
-
-    Promise.allSettled([orgApi.providers(orgId), orgApi.apiKeys(orgId)]).then(([prov, keys]) => {
-      grPromise.then(gr => {
-        if (cancelled) return;
-        const steps = [
-          prov.status === 'fulfilled' && prov.value?.length > 0,
-          !isTrialUser && gr.value?.length > 0,
-          Boolean(localStorage.getItem(`ps_playground_${orgId}`)),
-          keys.status === 'fulfilled' && keys.value?.length > 0,
-        ];
-        const done = steps.filter(Boolean).length;
-        if (done === steps.length) { setProgress(null); return; }
-        setProgress({ done, total: steps.length });
-      });
+    orgApi.activation(orgId).then(status => {
+      if (cancelled) return;
+      const steps = [status.providerConnected, status.firstRequestSent, status.guardrailFired];
+      const done = steps.filter(Boolean).length;
+      if (done === steps.length) { setProgress(null); return; }
+      setProgress({ done, total: steps.length });
     }).catch(() => setProgress(null));
     return () => { cancelled = true; };
-  }, [orgId, isTrialUser]);
+  }, [orgId]);
   return progress;
 }
 
@@ -80,7 +69,7 @@ export default function DashboardShell() {
   const onTrial     = isTrialActive  && !isSuperuser;
   const trialDead   = isTrialExpired && !isSuperuser;
 
-  const progress = useOnboardingProgress(currentOrg?.org_id, onTrial || trialDead);
+  const progress = useActivationProgress(currentOrg?.org_id);
 
   const routeSlug           = location.pathname.replace('/dashboard/', '').split('/')[0];
   const pageLockedByTrial   = onTrial   && !TRIAL_ALLOWED.has(routeSlug);
@@ -369,3 +358,4 @@ function LockIcon({ size })      { return <svg width={size} height={size} viewBo
 function CardIcon({ size })      { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>; }
 function GearIcon({ size })      { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>; }
 function SuperIcon({ size })     { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>; }
+function SlackIcon({ size })     { return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 16h.01M15 16h.01M9 12h6"/></svg>; }

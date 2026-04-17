@@ -33,6 +33,7 @@ import ApiKeys         from './pages/dashboard/ApiKeys';
 import Gauntlet        from './pages/dashboard/Gauntlet';
 import Downstream      from './pages/dashboard/Downstream';
 import SSO             from './pages/dashboard/SSO';
+import Slack           from './pages/dashboard/Slack';
 import SuperAdmin      from './pages/dashboard/SuperAdmin';
 import SsoCallback     from './pages/auth/SsoCallback';
 
@@ -170,6 +171,7 @@ export default function App() {
           <Route path="gauntlet"     element={<TrialGate slug="gauntlet"><Gauntlet /></TrialGate>} />
           <Route path="downstream"   element={<TrialGate slug="downstream"><Downstream /></TrialGate>} />
           <Route path="sso"          element={<TrialGate slug="sso"><SSO /></TrialGate>} />
+          <Route path="slack"        element={<TrialGate slug="slack"><Slack /></TrialGate>} />
           <Route path="super-admin"  element={<SuperAdmin />} />
         </Route>
 

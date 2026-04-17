@@ -31,6 +31,244 @@ router.delete('/api-keys/:id',  requireRole('developer'), requireTrialAccess({ t
 // Hard-delete a revoked key — superusers only
 router.delete('/api-keys/:id/delete', requireSuperuser, ctrl.deleteApiKey);
 
+// Activation status
+router.get('/activation', ctrl.getActivationStatus);
+
+// Audit export — CSV download
+router.get('/audit-export', requireTrialAccess(), async (req, res) => {
+  const { query } = require('../db/pool');
+  const { from, to, passed } = req.query;
+
+  const conditions = ['ae.org_id = $1'];
+  const params = [req.orgId];
+  let idx = 2;
+
+  if (from)   { conditions.push(`ae.created_at >= $${idx++}`); params.push(from); }
+  if (to)     { conditions.push(`ae.created_at <= $${idx++}`); params.push(to); }
+  if (passed !== undefined && passed !== '') {
+    conditions.push(`ae.passed = $${idx++}`);
+    params.push(passed === 'true');
+  }
+
+  const where = conditions.join(' AND ');
+  const { rows } = await query(
+    `SELECT ae.id, ae.created_at, ae.provider, ae.route, ae.passed,
+            ae.input_text, ae.output_text, ae.input_flags, ae.output_flags,
+            ae.latency_ms, ae.tokens_used, u.email AS user_email
+     FROM audit_events ae
+     LEFT JOIN users u ON u.id = ae.user_id
+     WHERE ${where}
+     ORDER BY ae.created_at DESC
+     LIMIT 10000`,
+    params
+  );
+
+  // Build CSV
+  const escape = v => {
+    if (v == null) return '';
+    const s = Array.isArray(v) ? v.join(';') : String(v);
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  const headers = ['id','created_at','user_email','provider','route','passed','latency_ms','tokens_used','input_flags','output_flags','input_text','output_text'];
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => escape(r[h])).join(','))
+  ].join('\r\n');
+
+  const filename = `promptsense-audit-${new Date().toISOString().split('T')[0]}.csv`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(csv);
+});
+
+// Compliance report — print-ready HTML (user saves as PDF via browser)
+router.get('/audit-report', requireTrialAccess(), async (req, res) => {
+  const { query } = require('../db/pool');
+  const { from, to } = req.query;
+
+  const conditions = ['ae.org_id = $1'];
+  const params = [req.orgId];
+  let idx = 2;
+  if (from) { conditions.push(`ae.created_at >= $${idx++}`); params.push(from); }
+  if (to)   { conditions.push(`ae.created_at <= $${idx++}`); params.push(to); }
+  const where = conditions.join(' AND ');
+
+  const [{ rows: events }, { rows: [stats] }, { rows: topFlags }, { rows: [orgRow] }] = await Promise.all([
+    query(`SELECT ae.id, ae.created_at, ae.provider, ae.route, ae.passed, ae.input_flags, ae.latency_ms, u.email AS user_email
+           FROM audit_events ae LEFT JOIN users u ON u.id=ae.user_id WHERE ${where} ORDER BY ae.created_at DESC LIMIT 500`, params),
+    query(`SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS passed_count,
+                  SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) AS blocked_count,
+                  ROUND(AVG(latency_ms)) AS avg_latency,
+                  SUM(tokens_used) AS total_tokens
+           FROM audit_events ae WHERE ${where}`, params),
+    query(`SELECT unnest(input_flags) AS flag, COUNT(*) AS cnt FROM audit_events ae WHERE ${where} AND input_flags != '{}' GROUP BY flag ORDER BY cnt DESC LIMIT 10`, params),
+    query(`SELECT name FROM organizations WHERE id=$1`, [req.orgId]),
+  ]);
+
+  const total = parseInt(stats?.total || 0);
+  const passed = parseInt(stats?.passed_count || 0);
+  const blocked = parseInt(stats?.blocked_count || 0);
+  const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
+  const orgName = orgRow?.name || 'Organization';
+  const dateRange = `${from || 'all time'} — ${to || 'now'}`;
+  const generated = new Date().toISOString();
+
+  const rowsHtml = events.slice(0, 200).map(e => `
+    <tr>
+      <td>${new Date(e.created_at).toLocaleString()}</td>
+      <td>${e.user_email || '—'}</td>
+      <td>${e.provider || '—'}</td>
+      <td><span class="${e.passed ? 'pass' : 'block'}">${e.passed ? 'Pass' : 'Block'}</span></td>
+      <td>${(e.input_flags || []).join(', ') || '—'}</td>
+      <td>${e.latency_ms ? e.latency_ms + ' ms' : '—'}</td>
+    </tr>`).join('');
+
+  const flagsHtml = topFlags.map(f =>
+    `<div class="flag-row"><span>${f.flag}</span><strong>${f.cnt}</strong></div>`).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PromptSense Compliance Report — ${orgName}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #111; background: #fff; font-size: 13px; }
+    .page { max-width: 900px; margin: 0 auto; padding: 40px 40px 60px; }
+    header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #7c3aed; padding-bottom: 16px; margin-bottom: 28px; }
+    .logo { font-size: 20px; font-weight: 800; color: #7c3aed; letter-spacing: -0.02em; }
+    .logo span { font-size: 11px; display: block; color: #666; font-weight: 400; margin-top: 2px; letter-spacing: 0; }
+    .meta { text-align: right; font-size: 11px; color: #666; line-height: 1.7; }
+    h2 { font-size: 15px; font-weight: 700; color: #111; margin: 28px 0 12px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stat { border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; }
+    .stat .val { font-size: 28px; font-weight: 800; color: #7c3aed; }
+    .stat .lbl { font-size: 11px; color: #666; margin-top: 2px; }
+    .flags { display: flex; flex-direction: column; gap: 6px; margin-bottom: 28px; }
+    .flag-row { display: flex; justify-content: space-between; padding: 7px 12px; background: #f9fafb; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    th { text-align: left; padding: 8px 10px; background: #f3f4f6; font-weight: 600; color: #374151; border-bottom: 1px solid #e5e7eb; }
+    td { padding: 7px 10px; border-bottom: 1px solid #f3f4f6; color: #374151; }
+    tr:hover td { background: #fafafa; }
+    .pass { color: #16a34a; font-weight: 600; }
+    .block { color: #dc2626; font-weight: 600; }
+    footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; display: flex; justify-content: space-between; }
+    @media print {
+      body { font-size: 11px; }
+      .page { padding: 20px; max-width: 100%; }
+      .print-btn { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <div>
+        <div class="logo">PromptSense<span>Enterprise AI Guardrails</span></div>
+        <div style="font-size:18px;font-weight:700;color:#111;margin-top:8px">Compliance Report</div>
+        <div style="font-size:12px;color:#666;margin-top:4px">${orgName}</div>
+      </div>
+      <div class="meta">
+        Period: ${dateRange}<br/>
+        Generated: ${new Date(generated).toLocaleString()}<br/>
+        Total events shown: ${Math.min(events.length, 200)} of ${total}
+      </div>
+    </header>
+
+    <button class="print-btn" onclick="window.print()" style="margin-bottom:20px;padding:9px 20px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+      🖨 Save as PDF (Print)
+    </button>
+
+    <h2>Summary</h2>
+    <div class="stats">
+      <div class="stat"><div class="val">${total.toLocaleString()}</div><div class="lbl">Total requests</div></div>
+      <div class="stat"><div class="val">${passRate}%</div><div class="lbl">Pass rate</div></div>
+      <div class="stat"><div class="val">${blocked.toLocaleString()}</div><div class="lbl">Blocked</div></div>
+      <div class="stat"><div class="val">${stats?.avg_latency || 0} ms</div><div class="lbl">Avg latency</div></div>
+    </div>
+
+    ${topFlags.length > 0 ? `<h2>Top guardrail triggers</h2><div class="flags">${flagsHtml}</div>` : ''}
+
+    <h2>Audit log (latest ${Math.min(events.length, 200)} events)</h2>
+    <table>
+      <thead><tr><th>Timestamp</th><th>User</th><th>Provider</th><th>Result</th><th>Flags</th><th>Latency</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+
+    <footer>
+      <span>PromptSense — promptsense.io</span>
+      <span>This report is generated from immutable audit records and may be used for compliance review.</span>
+    </footer>
+  </div>
+</body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
+});
+
+// Slack integration — save config + test webhooks
+router.get('/slack', requireRole('administrator'), async (req, res) => {
+  const settings = req.org?.settings || {};
+  res.json({
+    digestUrl:      settings.slack_digest_url || '',
+    alertsUrl:      settings.slack_alerts_url || '',
+    digestEnabled:  settings.slack_digest_enabled !== false,
+    alertsEnabled:  settings.slack_alerts_enabled !== false,
+  });
+});
+
+router.put('/slack', requireRole('administrator'), requireTrialAccess(), async (req, res) => {
+  const { query } = require('../db/pool');
+  const { digestUrl, alertsUrl, digestEnabled, alertsEnabled } = req.body;
+  await query(
+    `UPDATE organizations SET settings = settings ||
+       jsonb_build_object(
+         'slack_digest_url',     $1::text,
+         'slack_alerts_url',     $2::text,
+         'slack_digest_enabled', $3::boolean,
+         'slack_alerts_enabled', $4::boolean
+       )
+     WHERE id = $5`,
+    [digestUrl || '', alertsUrl || '', digestEnabled !== false, alertsEnabled !== false, req.orgId]
+  );
+  res.json({ saved: true });
+});
+
+router.post('/slack/test-digest', requireRole('administrator'), async (req, res) => {
+  const { sendDailyDigest } = require('../utils/slack');
+  const settings = req.org?.settings || {};
+  const url = settings.slack_digest_url;
+  if (!url) return res.status(400).json({ error: 'No digest webhook URL configured' });
+  await sendDailyDigest(url, {
+    orgName: req.org.org_name,
+    stats: { total: 247, passed: 231, blocked: 16, avgLatency: 312 },
+    topFlags: [{ flag: 'PII detected', cnt: 9 }, { flag: 'Prompt injection', cnt: 4 }, { flag: 'Toxicity', cnt: 3 }],
+    appUrl: process.env.FRONTEND_URL || 'https://app.prompt-sense.net',
+  });
+  res.json({ sent: true });
+});
+
+router.post('/slack/test-alert', requireRole('administrator'), async (req, res) => {
+  const { sendBlockAlert } = require('../utils/slack');
+  const settings = req.org?.settings || {};
+  const url = settings.slack_alerts_url;
+  if (!url) return res.status(400).json({ error: 'No alerts webhook URL configured' });
+  await sendBlockAlert(url, {
+    orgName: req.org.org_name,
+    prompt: 'My SSN is 123-45-6789, please store it.',
+    flags: ['PII detected'],
+    provider: 'anthropic',
+    auditId: 'test-00000000',
+    appUrl: process.env.FRONTEND_URL || 'https://app.prompt-sense.net',
+  });
+  res.json({ sent: true });
+});
+
 // Org info
 router.get('/', async (req, res) => {
   const { query } = require('../db/pool');

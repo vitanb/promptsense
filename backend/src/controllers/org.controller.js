@@ -336,4 +336,18 @@ async function getComplianceTemplates(req, res) {
   res.json(getIndustryTemplates());
 }
 
-module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listDownstreams, createDownstream, updateDownstream, deleteDownstream, listApiKeys, createApiKey, revokeApiKey, deleteApiKey, getSettings, updateSettings, getComplianceTemplates };
+// ── ACTIVATION STATUS ─────────────────────────────────────────────────────────
+async function getActivationStatus(req, res) {
+  const [providers, requests, flags] = await Promise.all([
+    query('SELECT 1 FROM provider_connections WHERE org_id=$1 AND enabled=true LIMIT 1', [req.orgId]),
+    query('SELECT 1 FROM audit_events WHERE org_id=$1 LIMIT 1', [req.orgId]),
+    query("SELECT 1 FROM audit_events WHERE org_id=$1 AND passed=false LIMIT 1", [req.orgId]),
+  ]);
+  res.json({
+    providerConnected: providers.rows.length > 0,
+    firstRequestSent:  requests.rows.length > 0,
+    guardrailFired:    flags.rows.length > 0,
+  });
+}
+
+module.exports = { listMembers, inviteMember, updateMemberRole, updateMemberDepartment, removeMember, updateBranding, listProviders, upsertProvider, deleteProvider, listDownstreams, createDownstream, updateDownstream, deleteDownstream, listApiKeys, createApiKey, revokeApiKey, deleteApiKey, getSettings, updateSettings, getComplianceTemplates, getActivationStatus };

@@ -3,6 +3,7 @@ const { query } = require('../db/pool');
 const { decrypt } = require('../utils/encryption');
 const { renderBodyTemplate } = require('../middleware/validate');
 const { runComplianceRules } = require('../utils/compliance');
+const { sendBlockAlert } = require('../utils/slack');
 const logger = require('../utils/logger');
 
 // ── Country detection ─────────────────────────────────────────────────────────
@@ -134,6 +135,18 @@ async function proxyPrompt(req, res) {
        storePrompts ? msg    : null,
        blocked.map(g => g.name), Date.now()-t0]
     );
+    // Fire Slack real-time alert (async — never blocks response)
+    const slackAlertsUrl = req.org?.settings?.slack_alerts_url;
+    if (slackAlertsUrl && req.org?.settings?.slack_alerts_enabled !== false) {
+      sendBlockAlert(slackAlertsUrl, {
+        orgName: req.org.org_name,
+        prompt: storePrompts ? prompt : '[not stored]',
+        flags: blocked.map(g => g.name),
+        provider: providerOverride || 'unknown',
+        auditId: event.rows[0].id,
+        appUrl: process.env.FRONTEND_URL || 'https://app.prompt-sense.net',
+      });
+    }
     return res.status(200).json({ output: msg, blocked: true, inputFlags: blocked.map(g=>g.name), outputFlags: [], auditId: event.rows[0].id, latency: Date.now()-t0 });
   }
 

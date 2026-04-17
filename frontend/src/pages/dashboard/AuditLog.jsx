@@ -14,13 +14,14 @@ export function AuditLog() {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [filters, setFilters] = useState({ provider:'', passed:'' });
+  const [filters, setFilters] = useState({ provider: '', passed: '' });
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
 
   const load = async () => {
     if (!orgId) { setLoading(false); return; }
-    setLoading(true);
-    setLoadError('');
-    const params = { page, limit:25 };
+    setLoading(true); setLoadError('');
+    const params = { page, limit: 25 };
     if (filters.provider) params.provider = filters.provider;
     if (filters.passed !== '') params.passed = filters.passed;
     try {
@@ -29,30 +30,70 @@ export function AuditLog() {
     } catch (e) {
       setLoadError(e.response?.data?.error || 'Failed to load audit log. Check that your backend is deployed.');
       setEvents([]);
-    }
-    finally { setLoading(false); }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, [orgId, page, filters]);
 
+  // Build export params from active date filters
+  const exportParams = {};
+  if (dateFrom) exportParams.from = dateFrom;
+  if (dateTo)   exportParams.to   = dateTo;
+  if (filters.passed !== '') exportParams.passed = filters.passed;
+
+  const handleExportCsv = () => {
+    // Authenticated download via a direct link carrying the auth token
+    const token = localStorage.getItem('ps_access_token');
+    const url = orgApi.auditExportUrl(orgId, exportParams);
+    // Fetch with auth header then trigger download
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `promptsense-audit-${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+      });
+  };
+
+  const handleComplianceReport = () => {
+    const token = localStorage.getItem('ps_access_token');
+    const url = orgApi.auditReportUrl(orgId, exportParams);
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.text())
+      .then(html => {
+        const win = window.open('', '_blank');
+        win.document.write(html);
+        win.document.close();
+      });
+  };
+
   return (
     <div>
-      <PageHeader title="Audit log" description={`${total.toLocaleString()} total events`}
-        action={<Btn size="sm" variant="secondary" onClick={() => promptApi.exportCsv(orgId)}>Export CSV</Btn>} />
+      <PageHeader title="Audit log" description={`${total.toLocaleString()} total events`} />
 
-      {/* Filters */}
-      <div style={{ display:'flex', gap:8, marginBottom:'1rem' }}>
-        <select value={filters.provider} onChange={e => setFilters(f=>({...f,provider:e.target.value}))}
-          style={{ fontSize:12, padding:'5px 10px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)' }}>
+      {/* Filter + export bar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={filters.provider} onChange={e => setFilters(f => ({ ...f, provider: e.target.value }))}
+          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg4)', color: 'var(--text)' }}>
           <option value="">All providers</option>
-          {['anthropic','openai','azure','gemini','mistral','cohere','downstream'].map(p=><option key={p} value={p}>{p}</option>)}
+          {['anthropic','openai','azure','gemini','mistral','cohere','downstream'].map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select value={filters.passed} onChange={e => setFilters(f=>({...f,passed:e.target.value}))}
-          style={{ fontSize:12, padding:'5px 10px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'var(--c-bg)', color:'var(--c-text)' }}>
+        <select value={filters.passed} onChange={e => setFilters(f => ({ ...f, passed: e.target.value }))}
+          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg4)', color: 'var(--text)' }}>
           <option value="">All status</option>
           <option value="true">Passed</option>
-          <option value="false">Flagged</option>
+          <option value="false">Flagged / Blocked</option>
         </select>
+        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="From date"
+          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg4)', color: 'var(--text)' }} />
+        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} title="To date"
+          style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--bg4)', color: 'var(--text)' }} />
+
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+          <Btn size="sm" variant="secondary" onClick={handleExportCsv}>↓ Export CSV</Btn>
+          <Btn size="sm" variant="secondary" onClick={handleComplianceReport}>📄 Compliance Report</Btn>
+        </div>
       </div>
 
       {loading ? <div style={{ display:'flex', justifyContent:'center', padding:'3rem' }}><Spinner /></div> : loadError ? (

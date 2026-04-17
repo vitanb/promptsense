@@ -87,6 +87,19 @@ export const orgApi = {
   upsertProvider: (orgId, data)  => api.put(`${o(orgId)}/providers`, data).then(r => r.data),
   deleteProvider: (orgId, prov)  => api.delete(`${o(orgId)}/providers/${prov}`).then(r => r.data),
 
+  // Activation status
+  activation: (orgId) => api.get(`${o(orgId)}/activation`).then(r => r.data),
+
+  // Audit export
+  auditExportUrl:  (orgId, params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return `${api.defaults.baseURL}${o(orgId)}/audit-export${qs ? '?' + qs : ''}`;
+  },
+  auditReportUrl:  (orgId, params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return `${api.defaults.baseURL}${o(orgId)}/audit-report${qs ? '?' + qs : ''}`;
+  },
+
   // Downstream systems
   downstreams:      (orgId)       => api.get(`${o(orgId)}/downstreams`).then(r => r.data),
   createDownstream: (orgId, data) => api.post(`${o(orgId)}/downstreams`, data).then(r => r.data),
@@ -98,6 +111,12 @@ export const orgApi = {
   createApiKey: (orgId, data)=> api.post(`${o(orgId)}/api-keys`, data).then(r => r.data),
   revokeApiKey: (orgId, id)  => api.delete(`${o(orgId)}/api-keys/${id}`).then(r => r.data),
   deleteApiKey:  (orgId, id)  => api.delete(`${o(orgId)}/api-keys/${id}/delete`).then(r => r.data),
+
+  // Slack integration
+  slackConfig:     (orgId)       => api.get(`${o(orgId)}/slack`).then(r => r.data),
+  saveSlackConfig: (orgId, data) => api.put(`${o(orgId)}/slack`, data).then(r => r.data),
+  testDigest:      (orgId)       => api.post(`${o(orgId)}/slack/test-digest`).then(r => r.data),
+  testAlert:       (orgId)       => api.post(`${o(orgId)}/slack/test-alert`).then(r => r.data),
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────

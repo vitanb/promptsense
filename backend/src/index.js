@@ -112,6 +112,108 @@ app.use((err, req, res, _next) => {
 // 404
 app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.path} not found` }));
 
+// ── Scheduled jobs ────────────────────────────────────────────────────────────
+const cron = require('node-cron');
+const { query: dbQuery } = require('./db/pool');
+const { sendActivationNudgeEmail } = require('./utils/email');
+const { sendDailyDigest } = require('./utils/slack');
+
+// Activation nudge — runs daily at 10:00 AM UTC.
+// Emails users whose org was created 48–72 hours ago and hasn't fully activated.
+cron.schedule('0 10 * * *', async () => {
+  logger.info('⏰ Running activation nudge cron');
+  try {
+    // Find orgs created 48–72 hours ago that have not fully activated
+    const { rows: orgs } = await dbQuery(`
+      SELECT o.id, o.name,
+             u.email, u.full_name,
+             (SELECT COUNT(*) FROM provider_connections pc WHERE pc.org_id=o.id AND pc.enabled=true) AS providers,
+             (SELECT COUNT(*) FROM audit_events ae WHERE ae.org_id=o.id) AS requests,
+             (SELECT COUNT(*) FROM audit_events ae WHERE ae.org_id=o.id AND ae.passed=false) AS flags
+      FROM organizations o
+      JOIN memberships m ON m.org_id=o.id AND m.role='administrator'
+      JOIN users u ON u.id=m.user_id
+      WHERE o.created_at BETWEEN NOW() - INTERVAL '72 hours' AND NOW() - INTERVAL '48 hours'
+        AND o.deleted_at IS NULL
+    `);
+    for (const org of orgs) {
+      const completed = {
+        providerConnected: parseInt(org.providers) > 0,
+        firstRequestSent:  parseInt(org.requests) > 0,
+        guardrailFired:    parseInt(org.flags) > 0,
+      };
+      const allDone = Object.values(completed).every(Boolean);
+      if (!allDone) {
+        await sendActivationNudgeEmail({ email: org.email, full_name: org.full_name }, org.name, completed);
+        logger.info('📧 Activation nudge sent', { org: org.name, email: org.email });
+      }
+    }
+  } catch (err) {
+    logger.error('Activation nudge cron failed', { error: err.message });
+  }
+});
+
+// Slack daily digest — runs every day at 9:00 AM UTC.
+// Sends yesterday's stats to any org that has slack_digest_url configured.
+cron.schedule('0 9 * * *', async () => {
+  logger.info('⏰ Running Slack daily digest cron');
+  try {
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    const dayStart  = new Date(yesterday); dayStart.setHours(0,0,0,0);
+    const dayEnd    = new Date(yesterday); dayEnd.setHours(23,59,59,999);
+
+    // Find all orgs with Slack digest enabled
+    const { rows: orgs } = await dbQuery(`
+      SELECT id, name,
+             settings->>'slack_digest_url' AS digest_url,
+             settings->>'slack_alerts_enabled' AS alerts_enabled
+      FROM organizations
+      WHERE settings->>'slack_digest_url' IS NOT NULL
+        AND settings->>'slack_digest_url' != ''
+        AND (settings->>'slack_digest_enabled')::boolean IS NOT FALSE
+        AND deleted_at IS NULL
+    `);
+
+    const APP_URL = process.env.FRONTEND_URL || 'https://app.prompt-sense.net';
+
+    for (const org of orgs) {
+      try {
+        const [{ rows: [stats] }, { rows: topFlags }] = await Promise.all([
+          dbQuery(`SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS passed,
+                          SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) AS blocked,
+                          ROUND(AVG(latency_ms)) AS avg_latency
+                   FROM audit_events
+                   WHERE org_id=$1 AND created_at BETWEEN $2 AND $3`,
+            [org.id, dayStart, dayEnd]),
+          dbQuery(`SELECT unnest(input_flags) AS flag, COUNT(*) AS cnt
+                   FROM audit_events
+                   WHERE org_id=$1 AND created_at BETWEEN $2 AND $3 AND input_flags != '{}'
+                   GROUP BY flag ORDER BY cnt DESC LIMIT 5`,
+            [org.id, dayStart, dayEnd]),
+        ]);
+
+        await sendDailyDigest(org.digest_url, {
+          orgName: org.name,
+          stats: {
+            total:      parseInt(stats?.total || 0),
+            passed:     parseInt(stats?.passed || 0),
+            blocked:    parseInt(stats?.blocked || 0),
+            avgLatency: parseInt(stats?.avg_latency || 0),
+          },
+          topFlags,
+          appUrl: APP_URL,
+        });
+        logger.info('📨 Slack digest sent', { org: org.name });
+      } catch (err) {
+        logger.error('Slack digest failed for org', { org: org.name, error: err.message });
+      }
+    }
+  } catch (err) {
+    logger.error('Slack daily digest cron failed', { error: err.message });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
