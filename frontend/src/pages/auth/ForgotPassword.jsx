@@ -1,4 +1,2 @@
-export { Register as default } from './Register';
-export { ForgotPassword } from './Register';
-export { ResetPassword }  from './Register';
-export { VerifyEmail }    from './Register';
+// Re-export — ForgotPassword lives in Register.jsx alongside all other auth forms
+export { ForgotPassword as default } from './Register';

@@ -331,26 +331,26 @@ export function Billing() {
 
       {/* Stripe not configured — admin setup instructions */}
       {stripeUnconfigured && (
-        <div style={{ marginBottom:'1.5rem', padding:'16px 18px', borderRadius:'var(--radius)', background:'rgba(245,158,11,0.08)',
-                      border:'1px solid rgba(245,158,11,0.25)', color:'#f59e0b' }}>
+        <div style={{ marginBottom:'1.5rem', padding:'16px 18px', borderRadius:'var(--radius)', background:'#FFF7ED',
+                      border:'0.5px solid #F59E0B', color:'#92400E' }}>
           <div style={{ fontWeight:600, marginBottom:6, fontSize:13 }}>⚠️ Stripe is not configured</div>
-          <div style={{ fontSize:12, lineHeight:1.6, color:'var(--text2)' }}>
+          <div style={{ fontSize:12, lineHeight:1.6 }}>
             To enable paid plan upgrades, add the following environment variables to your Render backend service:
           </div>
-          <pre style={{ fontSize:11, marginTop:8, padding:'10px 12px', background:'rgba(245,158,11,0.05)', borderRadius:4,
-                        overflowX:'auto', lineHeight:1.7, border:'1px solid rgba(245,158,11,0.15)', color:'#fcd34d' }}>
+          <pre style={{ fontSize:11, marginTop:8, padding:'10px 12px', background:'#FEF3C7', borderRadius:4,
+                        overflowX:'auto', lineHeight:1.7 }}>
 {`STRIPE_SECRET_KEY        = sk_live_...
 STRIPE_PRICE_GROWTH      = price_...   (Growth plan price ID from Stripe)
 STRIPE_PRICE_ENTERPRISE  = price_...   (Enterprise plan price ID from Stripe)
 STRIPE_WEBHOOK_SECRET    = whsec_...   (from Stripe webhook settings)`}
           </pre>
-          <div style={{ fontSize:11, marginTop:8, color:'#f59e0b' }}>
+          <div style={{ fontSize:11, marginTop:8, color:'#92400E' }}>
             Find these in your{' '}
             <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noreferrer"
-               style={{ color:'#fcd34d', fontWeight:600 }}>Stripe dashboard → API keys</a>
+               style={{ color:'#92400E', fontWeight:600 }}>Stripe dashboard → API keys</a>
             {' '}and{' '}
             <a href="https://dashboard.stripe.com/products" target="_blank" rel="noreferrer"
-               style={{ color:'#fcd34d', fontWeight:600 }}>Products → Prices</a>.
+               style={{ color:'#92400E', fontWeight:600 }}>Products → Prices</a>.
           </div>
         </div>
       )}
@@ -614,7 +614,7 @@ export function Settings() {
             </div>
             {privacy.store_prompts === false && (
               <div style={{ marginTop:6, fontSize:11, padding:'3px 8px', borderRadius:4, display:'inline-block',
-                            background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.25)', color:'#f59e0b' }}>
+                            background:'#FFF7ED', border:'0.5px solid #F59E0B', color:'#92400E' }}>
                 ⚠️ Audit log will show "[not stored]" — text cannot be recovered retroactively
               </div>
             )}

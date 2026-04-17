@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { authApi } from '../../services/api';
 import { Alert, Spinner } from '../../components/UI';
+import { AuthLayout, AuthLogo } from './Login';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -16,29 +17,47 @@ export default function VerifyEmail() {
   }, []);
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--c-bg2)', padding:'1rem' }}>
-      <div style={{ width:'100%', maxWidth:420, background:'var(--c-bg)', borderRadius:'var(--radius-lg)', padding:'2rem', boxShadow:'0 4px 24px rgba(0,0,0,0.08)', display:'flex', flexDirection:'column', gap:16 }}>
-        <h1 style={{ fontSize:20, fontWeight:500 }}>Email verification</h1>
+    <AuthLayout>
+      <AuthLogo />
+
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+          Email verification
+        </h1>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {status === 'verifying' && (
-          <div style={{ display:'flex', alignItems:'center', gap:10, color:'var(--c-text2)', fontSize:13 }}>
-            <Spinner size={16} /> Verifying your email address…
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text2)', fontSize: 13, padding: '8px 0' }}>
+            <Spinner size={16} />
+            Verifying your email address…
           </div>
         )}
+
         {status === 'success' && (
           <>
             <Alert type="success" message="Your email has been verified successfully!" />
-            <p style={{ fontSize:13, color:'var(--c-text2)' }}>You can now sign in to your PromptSense account.</p>
-            <Link to="/auth/login" style={{ fontSize:13, fontWeight:500, color:'var(--c-purple)' }}>→ Go to login</Link>
+            <p style={{ fontSize: 13, color: 'var(--text2)' }}>
+              You can now sign in to your PromptSense account.
+            </p>
+            <Link to="/auth/login" style={{ fontSize: 13, fontWeight: 500, color: 'var(--accent-light)' }}>
+              → Go to sign in
+            </Link>
           </>
         )}
+
         {status === 'error' && (
           <>
             <Alert type="error" message="Verification link is invalid or has expired." />
-            <p style={{ fontSize:13, color:'var(--c-text2)' }}>Request a new verification email by logging in and visiting your settings.</p>
-            <Link to="/auth/login" style={{ fontSize:13, color:'var(--c-purple)' }}>← Back to login</Link>
+            <p style={{ fontSize: 13, color: 'var(--text2)' }}>
+              Request a new verification email by logging in and visiting your account settings.
+            </p>
+            <Link to="/auth/login" style={{ fontSize: 13, color: 'var(--accent-light)' }}>
+              ← Back to sign in
+            </Link>
           </>
         )}
       </div>
-    </div>
+    </AuthLayout>
   );
 }

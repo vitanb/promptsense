@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PromptSense — Visual Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d0d12; color: #e2e2e8; min-height: 100vh; padding: 32px 24px 64px; }
+  h1 { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 4px; letter-spacing: -0.3px; }
+  .subtitle { font-size: 13px; color: #6b6b80; margin-bottom: 36px; }
+
+  /* ── Layout ── */
+  .arch { display: flex; flex-direction: column; gap: 32px; }
+
+  /* ── Layer rows ── */
+  .layer { display: flex; flex-direction: column; gap: 10px; }
+  .layer-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #4a4a60; margin-bottom: 4px; padding-left: 2px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* ── Cards ── */
+  .card {
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-width: 160px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .card-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.1px; }
+  .card-items { display: flex; flex-direction: column; gap: 3px; }
+  .card-item { font-size: 10.5px; color: #a0a0b8; line-height: 1.4; padding: 2px 6px; border-radius: 4px; }
+  .card-item.highlight { color: #fff; background: rgba(255,255,255,0.06); }
+  .card-badge { display: inline-block; font-size: 9px; font-weight: 600; padding: 1px 6px; border-radius: 8px; margin-left: 4px; vertical-align: middle; letter-spacing: 0.03em; }
+
+  /* ── Colour themes ── */
+  .theme-purple { background: #1a1430; border: 1px solid #3d2f6b; }
+  .theme-purple .card-title { color: #a78bfa; }
+  .theme-blue   { background: #0f1e30; border: 1px solid #1e4a7a; }
+  .theme-blue   .card-title { color: #60a5fa; }
+  .theme-green  { background: #0f2016; border: 1px solid #1e5c30; }
+  .theme-green  .card-title { color: #4ade80; }
+  .theme-amber  { background: #1e1600; border: 1px solid #5c3d00; }
+  .theme-amber  .card-title { color: #fbbf24; }
+  .theme-red    { background: #1e0f0f; border: 1px solid #5c2020; }
+  .theme-red    .card-title { color: #f87171; }
+  .theme-teal   { background: #0d1e1e; border: 1px solid #1a4a4a; }
+  .theme-teal   .card-title { color: #2dd4bf; }
+  .theme-slate  { background: #131320; border: 1px solid #2a2a44; }
+  .theme-slate  .card-title { color: #94a3b8; }
+
+  /* ── Connector arrows ── */
+  .connector { display: flex; align-items: center; justify-content: center; color: #2a2a44; font-size: 20px; padding: 2px 0; letter-spacing: 4px; }
+
+  /* ── Wide cards ── */
+  .card.wide { min-width: 340px; flex: 1; }
+  .card.full { width: 100%; }
+
+  /* ── Two-column grid ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .four-col { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+
+  /* ── Section divider ── */
+  .divider { display: flex; align-items: center; gap: 12px; margin: 4px 0; }
+  .divider-line { flex: 1; height: 1px; background: #1e1e2e; }
+  .divider-text { font-size: 10px; color: #3a3a50; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+
+  /* ── Role pills ── */
+  .role-user   { background: #1a3050; color: #60a5fa; }
+  .role-dev    { background: #2a1a00; color: #fbbf24; }
+  .role-admin  { background: #1e1050; color: #a78bfa; }
+  .role-super  { background: #2a0a0a; color: #f87171; }
+
+  /* ── Route method badges ── */
+  .method-get    { background: #0f2a1a; color: #4ade80; }
+  .method-post   { background: #0f1e30; color: #60a5fa; }
+  .method-patch  { background: #1e1600; color: #fbbf24; }
+  .method-delete { background: #1e0f0f; color: #f87171; }
+
+  .section-title {
+    font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 12px; padding-bottom: 8px;
+    border-bottom: 1px solid #1e1e2e; letter-spacing: -0.2px;
+  }
+
+  .flow-arrow { text-align: center; color: #2a2a44; font-size: 18px; padding: 2px 0; }
+  .flow-label { text-align: center; font-size: 10px; color: #4a4a60; margin-top: -6px; margin-bottom: 4px; letter-spacing: 0.05em; }
+</style>
+</head>
+<body>
+
+<h1>PromptSense — Visual Architecture</h1>
+<p class="subtitle">Full-stack multi-tenant LLM guardrail platform · React + Node.js + PostgreSQL</p>
+
+<div class="arch">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 1: External clients                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-label">External Clients</div>
+    <div class="three-col">
+      <div class="card theme-slate">
+        <div class="card-title">🌐 Browser / User</div>
+        <div class="card-items">
+          <div class="card-item highlight">React SPA (Vercel)</div>
+          <div class="card-item">prompt-sense.net</div>
+          <div class="card-item">JWT stored in localStorage</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">🤖 SDK / API Consumer</div>
+        <div class="card-items">
+          <div class="card-item highlight">X-PromptSense-Key header</div>
+          <div class="card-item">Any LLM-powered app</div>
+          <div class="card-item">POST /proxy → guardrail check</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">💳 Stripe Webhooks</div>
+        <div class="card-items">
+          <div class="card-item highlight">POST /webhooks/stripe</div>
+          <div class="card-item">HMAC signature verified</div>
+          <div class="card-item">Updates subscription status</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flow-arrow">↓</div>
+  <div class="flow-label">HTTPS · JWT Bearer / API Key · Raw body for Stripe</div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 2: Frontend Pages                                 -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-label">Frontend · React 18 + Vite (Vercel)</div>
+
+    <div class="section-title">Public Pages</div>
+    <div class="row">
+      <div class="card theme-slate">
+        <div class="card-title">Landing.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Hero · Features · Testimonials</div>
+          <div class="card-item">Enterprise section · CTA</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">Pricing.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Plan comparison table</div>
+          <div class="card-item">Monthly / yearly toggle · FAQs</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"><div class="divider-line"></div><div class="divider-text">Auth Pages (guest-only)</div><div class="divider-line"></div></div>
+    <div class="four-col">
+      <div class="card theme-blue">
+        <div class="card-title">Login.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Email + password form</div>
+          <div class="card-item">→ authApi.login()</div>
+        </div>
+      </div>
+      <div class="card theme-blue">
+        <div class="card-title">Register.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Name · email · password</div>
+          <div class="card-item">Org name · → authApi.register()</div>
+        </div>
+      </div>
+      <div class="card theme-blue">
+        <div class="card-title">ForgotPassword.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Email field</div>
+          <div class="card-item">→ authApi.forgotPassword()</div>
+        </div>
+      </div>
+      <div class="card theme-blue">
+        <div class="card-title">ResetPassword.jsx<br/>VerifyEmail.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Token from URL query param</div>
+          <div class="card-item">→ authApi.resetPassword/verifyEmail()</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"><div class="divider-line"></div><div class="divider-text">Dashboard Shell (protected — requires auth)</div><div class="divider-line"></div></div>
+
+    <div class="card theme-purple full">
+      <div class="card-title">Shell.jsx — DashboardShell()</div>
+      <div class="row" style="gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <div class="card-item highlight">Sidebar nav · Org switcher · Role badge · Suspended banner · Superuser badge</div>
+        <div class="card-item highlight">Onboarding progress banner (auto-hides when all steps complete)</div>
+        <div class="card-item highlight">NAV items filtered by: minRole + superuserOnly + onboardingOnly</div>
+        <div class="card-item">Route: /dashboard/*  →  &lt;Outlet /&gt;  (nested pages below)</div>
+      </div>
+    </div>
+
+    <div class="divider"><div class="divider-line"></div><div class="divider-text">Dashboard Pages (nested inside Shell)</div><div class="divider-line"></div></div>
+
+    <div class="three-col">
+
+      <!-- Core features -->
+      <div class="card theme-purple">
+        <div class="card-title">🚀 Onboarding.jsx</div>
+        <div class="card-items">
+          <div class="card-item">4-step checklist</div>
+          <div class="card-item">Connect provider → Guardrail → Playground → API key</div>
+          <div class="card-item">shouldShowOnboarding() helper</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">▶ Playground.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Send prompt → promptApi.run()</div>
+          <div class="card-item">Live guardrail result display</div>
+          <div class="card-item">Flag badges · latency · tokens</div>
+          <div class="card-item">All roles</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">⚡ Integrations.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Provider cards: Anthropic · OpenAI · Azure · Gemini · Mistral · Cohere · Downstream</div>
+          <div class="card-item">orgApi.upsertProvider()</div>
+          <div class="card-item">Min role: developer</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">🛡 Guardrails.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Rule list with toggle · severity badge</div>
+          <div class="card-item">Create / edit / delete guardrails</div>
+          <div class="card-item">Pattern tester inline</div>
+          <div class="card-item">configApi.guardrails()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">📋 Policies.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Bundle guardrails into named policies</div>
+          <div class="card-item">Activate policy (one active at a time)</div>
+          <div class="card-item">configApi.policies()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">📄 Templates.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Reusable prompt templates</div>
+          <div class="card-item">Category tags · variable slots</div>
+          <div class="card-item">configApi.templates()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">🔔 Webhooks.jsx</div>
+        <div class="card-items">
+          <div class="card-item">HTTP · Slack · PagerDuty</div>
+          <div class="card-item">Events: blocked · flagged · all</div>
+          <div class="card-item">HMAC-SHA256 signing</div>
+          <div class="card-item">configApi.webhooks()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">📊 Analytics.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Pass rate · latency · cost · tokens</div>
+          <div class="card-item">Flag distribution chart</div>
+          <div class="card-item">Department breakdown</div>
+          <div class="card-item">promptApi.analytics()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">📜 AuditLog.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Immutable prompt history</div>
+          <div class="card-item">Filter by provider / pass status</div>
+          <div class="card-item">Expandable input/output</div>
+          <div class="card-item">CSV export · promptApi.audit()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">🎯 Gauntlet.jsx</div>
+        <div class="card-items">
+          <div class="card-item">37 adversarial probes</div>
+          <div class="card-item">6 categories: injection · jailbreak · PII · encoding · harmful · leak</div>
+          <div class="card-item">Live polling · score gauge</div>
+          <div class="card-item">Min role: developer</div>
+        </div>
+      </div>
+
+      <!-- Org management -->
+      <div class="card theme-blue">
+        <div class="card-title">👥 Members.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Invite · role change · remove</div>
+          <div class="card-item">Department inline edit</div>
+          <div class="card-item">Confirm modal on remove</div>
+          <div class="card-item highlight">Min role: administrator</div>
+        </div>
+      </div>
+
+      <div class="card theme-blue">
+        <div class="card-title">🔑 ApiKeys.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Create ps_live_... keys</div>
+          <div class="card-item">Shown once · revoke</div>
+          <div class="card-item">orgApi.apiKeys()</div>
+          <div class="card-item highlight">Min role: developer</div>
+        </div>
+      </div>
+
+      <div class="card theme-blue">
+        <div class="card-title">💳 Billing.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Current plan · usage metrics</div>
+          <div class="card-item">Plan upgrade → Stripe Checkout</div>
+          <div class="card-item">Invoice history · Manage portal</div>
+          <div class="card-item highlight">Min role: administrator</div>
+        </div>
+      </div>
+
+      <div class="card theme-blue">
+        <div class="card-title">⚙ Settings.jsx</div>
+        <div class="card-items">
+          <div class="card-item">Org name · billing email</div>
+          <div class="card-item">Branding: logo · color · domain · tz</div>
+          <div class="card-item">SDK proxy endpoint info</div>
+          <div class="card-item highlight">Danger zone: delete account</div>
+        </div>
+      </div>
+
+      <!-- Super admin -->
+      <div class="card theme-red">
+        <div class="card-title">🛡️ SuperAdmin.jsx</div>
+        <div class="card-items">
+          <div class="card-item highlight">Superuser only</div>
+          <div class="card-item">Stats bar: users · orgs · MRR · requests</div>
+          <div class="card-item">Users tab: search · delete · promote · reset pwd</div>
+          <div class="card-item">Tenants tab: suspend · activate · create · change plan</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="flow-arrow">↓</div>
+  <div class="flow-label">Context Providers wrap all dashboard pages</div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 3: State / Context                                -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-label">React Context Providers + API Services</div>
+
+    <div class="two-col">
+
+      <div class="card theme-purple">
+        <div class="card-title">AuthContext.jsx — AuthProvider / useAuth()</div>
+        <div class="card-items">
+          <div class="card-item highlight">State: user · orgs[] · loading</div>
+          <div class="card-item">user: { id · email · fullName · isSuperuser }</div>
+          <div class="card-item">login() → saveSession() → setUser + setOrgs</div>
+          <div class="card-item">register() → saveSession()</div>
+          <div class="card-item">logout() → clearSession() → clear localStorage</div>
+          <div class="card-item">deleteAccount(password) → API → clearSession()</div>
+          <div class="card-item">me() on mount → restore session from token</div>
+          <div class="card-item">localStorage keys: ps_access_token · ps_refresh_token · ps_org_id</div>
+        </div>
+      </div>
+
+      <div class="card theme-blue">
+        <div class="card-title">OrgContext.jsx — OrgProvider / useOrg()</div>
+        <div class="card-items">
+          <div class="card-item highlight">State: currentOrg · orgDetail · role · loading</div>
+          <div class="card-item">currentOrg: { org_id · org_name · role · plan_name }</div>
+          <div class="card-item">orgDetail: full org with branding · plan limits</div>
+          <div class="card-item">switchOrg(org) → update role + localStorage</div>
+          <div class="card-item highlight">can(minRole) → ROLE_RANK check · superusers always true</div>
+          <div class="card-item">ROLE_RANK: user=0 · developer=1 · administrator=2</div>
+          <div class="card-item">Fetches orgApi.get() on org change</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:10px;">
+      <div class="card theme-teal full">
+        <div class="card-title">services/api.js — Axios instance + 8 API objects</div>
+        <div class="four-col" style="margin-top:10px; gap:6px;">
+          <div>
+            <div class="card-item highlight" style="margin-bottom:4px;">authApi</div>
+            <div class="card-item">register · login · logout · me</div>
+            <div class="card-item">verifyEmail · forgotPassword</div>
+            <div class="card-item">resetPassword · deleteAccount</div>
+          </div>
+          <div>
+            <div class="card-item highlight" style="margin-bottom:4px;">orgApi</div>
+            <div class="card-item">get · update · updateBranding</div>
+            <div class="card-item">members · invite · updateRole</div>
+            <div class="card-item">providers · apiKeys · revokeApiKey</div>
+          </div>
+          <div>
+            <div class="card-item highlight" style="margin-bottom:4px;">configApi</div>
+            <div class="card-item">guardrails · policies · templates</div>
+            <div class="card-item">webhooks · downstream</div>
+            <div class="card-item">Full CRUD on each</div>
+          </div>
+          <div>
+            <div class="card-item highlight" style="margin-bottom:4px;">promptApi · gauntletApi · billingApi · adminApi</div>
+            <div class="card-item">run · audit · analytics · exportCsv</div>
+            <div class="card-item">categories · runs · results</div>
+            <div class="card-item">checkout · portal · plans</div>
+            <div class="card-item">stats · listUsers · deleteUser · suspendOrg</div>
+          </div>
+        </div>
+        <div class="card-items" style="margin-top:10px; flex-direction:row; flex-wrap:wrap; gap:6px;">
+          <div class="card-item highlight">Auto-attach Bearer token on every request</div>
+          <div class="card-item highlight">Auto-attach X-Org-Id header</div>
+          <div class="card-item highlight">Auto-refresh on 401 TOKEN_EXPIRED → silent retry</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="flow-arrow">↓</div>
+  <div class="flow-label">HTTPS API calls to backend</div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 4: Backend                                        -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-label">Backend · Node.js + Express (Render)</div>
+
+    <div class="card theme-slate full">
+      <div class="card-title">index.js — Express App Entry</div>
+      <div class="row" style="gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <div class="card-item highlight">Helmet · CORS · trust proxy · JSON parser</div>
+        <div class="card-item highlight">Global rate limit: 120 req/min · Auth rate limit: 10 req/min</div>
+        <div class="card-item">Stripe webhook: raw body BEFORE json parser</div>
+        <div class="card-item">Health check: GET /health → DB ping</div>
+        <div class="card-item">Plans (public): GET /api/plans</div>
+      </div>
+    </div>
+
+    <div class="divider"><div class="divider-line"></div><div class="divider-text">Middleware Pipeline</div><div class="divider-line"></div></div>
+
+    <div class="four-col">
+      <div class="card theme-slate">
+        <div class="card-title">authenticate</div>
+        <div class="card-items">
+          <div class="card-item">Verify JWT (RS256)</div>
+          <div class="card-item">SELECT user from DB</div>
+          <div class="card-item">Set req.userId</div>
+          <div class="card-item">Set req.isSuperuser</div>
+          <div class="card-item">TOKEN_EXPIRED → 401</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">loadOrg</div>
+        <div class="card-items">
+          <div class="card-item">Superusers bypass membership check</div>
+          <div class="card-item">Load org + plan from membership</div>
+          <div class="card-item">Check deleted_at → 403</div>
+          <div class="card-item">Check tenant_status=suspended → 402</div>
+          <div class="card-item">Set req.org · req.role</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">requireRole(minRole)</div>
+        <div class="card-items">
+          <div class="card-item highlight">Superusers always pass ✓</div>
+          <div class="card-item">user → developer → administrator</div>
+          <div class="card-item">403 if below minRole</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">requireSuperuser</div>
+        <div class="card-items">
+          <div class="card-item highlight">is_superuser=true only</div>
+          <div class="card-item">Guards /api/admin/* entirely</div>
+          <div class="card-item">403 otherwise</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card theme-amber" style="margin-top:4px;">
+      <div class="card-title">rateLimitRedis.js — Per-org sliding window</div>
+      <div class="card-items" style="flex-direction:row; flex-wrap:wrap; gap:6px;">
+        <div class="card-item">starter: 30 req/min</div>
+        <div class="card-item">pro: 120 req/min</div>
+        <div class="card-item">enterprise: 600 req/min</div>
+        <div class="card-item highlight">Redis Lua script (atomic) · Graceful fallback to in-memory Map</div>
+      </div>
+    </div>
+
+    <div class="divider"><div class="divider-line"></div><div class="divider-text">Route Files → Controllers</div><div class="divider-line"></div></div>
+
+    <div class="three-col">
+
+      <div class="card theme-blue">
+        <div class="card-title">auth.routes.js → auth.controller.js</div>
+        <div class="card-items">
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/register → register()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/login → login()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/refresh → refresh()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/logout → logout()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/verify-email</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/forgot-password</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /auth/reset-password</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /auth/me → me()</div>
+          <div class="card-item"><span class="card-badge method-delete">DELETE</span> /auth/account → deleteAccount()</div>
+        </div>
+      </div>
+
+      <div class="card theme-purple">
+        <div class="card-title">org.routes.js → org.controller.js</div>
+        <div class="card-items">
+          <div class="card-item"><span class="card-badge method-get">GET</span> /orgs/:id → org info + plan</div>
+          <div class="card-item"><span class="card-badge method-patch">PATCH</span> /orgs/:id → update name</div>
+          <div class="card-item"><span class="card-badge method-patch">PATCH</span> /orgs/:id/branding → updateBranding()</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /members → listMembers()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /members/invite → inviteMember()</div>
+          <div class="card-item"><span class="card-badge method-patch">PATCH</span> /members/:id/role</div>
+          <div class="card-item"><span class="card-badge method-patch">PATCH</span> /members/:id/department</div>
+          <div class="card-item"><span class="card-badge method-delete">DELETE</span> /members/:id → removeMember()</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /providers · <span class="card-badge method-post">PUT</span> · <span class="card-badge method-delete">DELETE</span></div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /api-keys · <span class="card-badge method-post">POST</span> · <span class="card-badge method-delete">DELETE</span></div>
+        </div>
+      </div>
+
+      <div class="card theme-teal">
+        <div class="card-title">config.routes.js → config.controller.js</div>
+        <div class="card-items">
+          <div class="card-item">Guardrails — full CRUD</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /guardrails · <span class="card-badge method-post">POST</span> · <span class="card-badge method-patch">PATCH</span> · <span class="card-badge method-delete">DELETE</span></div>
+          <div class="card-item">Policies — full CRUD</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /policies · <span class="card-badge method-post">POST</span> · <span class="card-badge method-patch">PATCH</span> · <span class="card-badge method-delete">DELETE</span></div>
+          <div class="card-item">Templates — full CRUD</div>
+          <div class="card-item">Webhooks — full CRUD (SSRF guard)</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /downstream · <span class="card-badge method-post">PUT</span></div>
+        </div>
+      </div>
+
+      <div class="card theme-green">
+        <div class="card-title">proxy.routes.js → proxy.controller.js</div>
+        <div class="card-items">
+          <div class="card-item highlight">Core guardrail execution engine</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /proxy → proxyPrompt()</div>
+          <div class="card-item">  1. API key OR JWT auth</div>
+          <div class="card-item">  2. Per-org Redis rate limit</div>
+          <div class="card-item">  3. Input guardrail scan</div>
+          <div class="card-item">  4. Forward to LLM provider</div>
+          <div class="card-item">  5. Output guardrail scan</div>
+          <div class="card-item">  6. Log audit event</div>
+          <div class="card-item">  7. Fire webhooks async</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /analytics → aggregated metrics</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /audit → prompt log</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /audit/export → CSV stream</div>
+        </div>
+      </div>
+
+      <div class="card theme-amber">
+        <div class="card-title">gauntlet.routes.js → gauntlet.controller.js</div>
+        <div class="card-items">
+          <div class="card-item highlight">37 adversarial probes · 6 categories</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /gauntlet/categories</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /gauntlet/runs</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /gauntlet/runs → createRun()</div>
+          <div class="card-item">  Async background execution</div>
+          <div class="card-item">  looksLikeRefusal() helper</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /gauntlet/runs/:id</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /gauntlet/runs/:id/results</div>
+          <div class="card-item"><span class="card-badge method-delete">DELETE</span> /gauntlet/runs/:id</div>
+        </div>
+      </div>
+
+      <div class="card theme-red">
+        <div class="card-title">admin.routes.js → admin.controller.js</div>
+        <div class="card-items">
+          <div class="card-item highlight">requireSuperuser on ALL routes</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /admin/stats → getStats()</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /admin/users → listUsers()</div>
+          <div class="card-item"><span class="card-badge method-delete">DELETE</span> /admin/users/:id → deleteUser()</div>
+          <div class="card-item"><span class="card-badge method-patch">PATCH</span> /admin/users/:id/superuser</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /admin/users/:id/reset-password</div>
+          <div class="card-item"><span class="card-badge method-get">GET</span> /admin/orgs → listOrgs()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /admin/orgs → createOrg()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /admin/orgs/:id/suspend</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /admin/orgs/:id/activate</div>
+          <div class="card-item"><span class="card-badge method-patch">PATCH</span> /admin/orgs/:id/plan</div>
+          <div class="card-item"><span class="card-badge method-delete">DELETE</span> /admin/orgs/:id</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Billing + Email -->
+    <div class="two-col" style="margin-top:4px;">
+      <div class="card theme-green">
+        <div class="card-title">billing.routes.js → billing.controller.js</div>
+        <div class="card-items">
+          <div class="card-item"><span class="card-badge method-get">GET</span> /billing → getBilling() — plan + invoices + usage</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /billing/checkout → createCheckout()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /billing/portal → createPortal()</div>
+          <div class="card-item"><span class="card-badge method-post">POST</span> /webhooks/stripe → stripeWebhook()</div>
+          <div class="card-item">  HMAC-SHA256 signature validation</div>
+          <div class="card-item">  Updates subscription_status on org</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">utils/email.js — Transactional Email</div>
+        <div class="card-items">
+          <div class="card-item">Nodemailer + Resend SMTP (port 587)</div>
+          <div class="card-item">sendVerificationEmail(user, token)</div>
+          <div class="card-item">sendPasswordResetEmail(user, token)</div>
+          <div class="card-item">sendInviteEmail(user, org, inviter, token)</div>
+          <div class="card-item highlight">Graceful no-op if SMTP not configured</div>
+          <div class="card-item highlight">try/catch — email never crashes the API</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="flow-arrow">↓</div>
+  <div class="flow-label">SQL queries via pg connection pool · AES-256-GCM encryption for API keys</div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 5: Database                                       -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-label">Database · PostgreSQL 16 (Neon) + Redis (Upstash)</div>
+
+    <div class="four-col">
+      <div class="card theme-green">
+        <div class="card-title">Core Tenant Tables</div>
+        <div class="card-items">
+          <div class="card-item highlight">organizations</div>
+          <div class="card-item">id · name · slug · plan_id</div>
+          <div class="card-item">tenant_status · suspended_at/reason/by</div>
+          <div class="card-item">primary_color · logo_url · custom_domain</div>
+          <div class="card-item">timezone · locale · deleted_at</div>
+          <div class="card-item highlight">plans</div>
+          <div class="card-item">starter · pro · enterprise</div>
+          <div class="card-item">requests_per_month · members_limit</div>
+        </div>
+      </div>
+      <div class="card theme-blue">
+        <div class="card-title">User + Auth Tables</div>
+        <div class="card-items">
+          <div class="card-item highlight">users</div>
+          <div class="card-item">id · email · password_hash</div>
+          <div class="card-item highlight">is_superuser · deleted_at</div>
+          <div class="card-item">email_verified · last_login_at</div>
+          <div class="card-item highlight">memberships</div>
+          <div class="card-item">org_id · user_id · role</div>
+          <div class="card-item">active · invite_status · department</div>
+          <div class="card-item highlight">refresh_tokens</div>
+          <div class="card-item">token_hash · revoked · expires_at</div>
+        </div>
+      </div>
+      <div class="card theme-purple">
+        <div class="card-title">Guardrail + Policy Tables</div>
+        <div class="card-items">
+          <div class="card-item highlight">guardrails</div>
+          <div class="card-item">name · pattern · type · severity</div>
+          <div class="card-item">action (block/warn/log) · enabled</div>
+          <div class="card-item highlight">policies</div>
+          <div class="card-item">name · guardrail_ids[] · active</div>
+          <div class="card-item highlight">prompt_templates</div>
+          <div class="card-item">content · variables · category</div>
+        </div>
+      </div>
+      <div class="card theme-amber">
+        <div class="card-title">Activity + Integration Tables</div>
+        <div class="card-items">
+          <div class="card-item highlight">prompt_logs</div>
+          <div class="card-item">input · output · provider · passed</div>
+          <div class="card-item">flags · latency_ms · tokens · cost</div>
+          <div class="card-item highlight">webhooks · webhook_deliveries</div>
+          <div class="card-item highlight">api_keys</div>
+          <div class="card-item">key_hash (SHA-256) · key_prefix</div>
+          <div class="card-item highlight">provider_connections</div>
+          <div class="card-item">encrypted_key (AES-256-GCM)</div>
+          <div class="card-item highlight">gauntlet_runs · gauntlet_results</div>
+          <div class="card-item highlight">tenant_events · usage_records</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two-col" style="margin-top:4px;">
+      <div class="card theme-teal">
+        <div class="card-title">Redis (Upstash) — Rate Limiting</div>
+        <div class="card-items">
+          <div class="card-item">Sliding window via Lua script (atomic)</div>
+          <div class="card-item">Key: rate_limit:{orgId}</div>
+          <div class="card-item">Limits: starter=30 · pro=120 · enterprise=600 req/min</div>
+          <div class="card-item">Fallback: in-memory Map (no Redis)</div>
+        </div>
+      </div>
+      <div class="card theme-slate">
+        <div class="card-title">Migrations (5 applied)</div>
+        <div class="card-items">
+          <div class="card-item">001_initial_schema.sql — full schema</div>
+          <div class="card-item">002_add_department.sql — memberships.department</div>
+          <div class="card-item">003_gauntlet.sql — gauntlet_runs/results</div>
+          <div class="card-item">004_superuser.sql — is_superuser · org deleted_at</div>
+          <div class="card-item">005_multitenancy.sql — tenant_status · branding · tenant_events</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="flow-arrow">↓</div>
+  <div class="flow-label">External service integrations</div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 6: External Services                              -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer">
+    <div class="layer-label">External Services</div>
+    <div class="four-col">
+      <div class="card theme-green">
+        <div class="card-title">💳 Stripe</div>
+        <div class="card-items">
+          <div class="card-item">Checkout Sessions</div>
+          <div class="card-item">Customer Portal</div>
+          <div class="card-item">Subscription webhooks</div>
+          <div class="card-item">Invoice history</div>
+        </div>
+      </div>
+      <div class="card theme-blue">
+        <div class="card-title">📧 Resend (SMTP)</div>
+        <div class="card-items">
+          <div class="card-item">smtp.resend.com:587</div>
+          <div class="card-item">Email verification</div>
+          <div class="card-item">Password reset</div>
+          <div class="card-item">Team invite</div>
+        </div>
+      </div>
+      <div class="card theme-purple">
+        <div class="card-title">🤖 LLM Providers</div>
+        <div class="card-items">
+          <div class="card-item">Anthropic (Claude)</div>
+          <div class="card-item">OpenAI · Azure OpenAI</div>
+          <div class="card-item">Gemini · Mistral · Cohere</div>
+          <div class="card-item">Custom downstream systems</div>
+        </div>
+      </div>
+      <div class="card theme-amber">
+        <div class="card-title">🔔 Webhook Targets</div>
+        <div class="card-items">
+          <div class="card-item">Slack (blocked/flagged)</div>
+          <div class="card-item">PagerDuty (critical)</div>
+          <div class="card-item">Custom HTTP endpoints</div>
+          <div class="card-item">HMAC-SHA256 signed</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- LAYER 7: Role access matrix                             -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div class="layer" style="margin-top:8px;">
+    <div class="layer-label">Role Access Matrix</div>
+    <div class="card theme-slate full">
+      <div class="card-title">Who can see / do what</div>
+      <div class="four-col" style="margin-top:10px; gap:8px;">
+        <div>
+          <span class="card-badge role-user" style="font-size:11px; padding:3px 10px; margin-bottom:8px; display:inline-block;">user</span>
+          <div class="card-items">
+            <div class="card-item">✓ Playground</div>
+            <div class="card-item">✓ Audit log (read)</div>
+            <div class="card-item">✓ Analytics (read)</div>
+            <div class="card-item">✓ Guardrails (read)</div>
+            <div class="card-item">✓ Templates (read)</div>
+            <div class="card-item">✗ Integrations</div>
+            <div class="card-item">✗ Gauntlet</div>
+            <div class="card-item">✗ Members · API keys</div>
+            <div class="card-item">✗ Billing · Settings</div>
+          </div>
+        </div>
+        <div>
+          <span class="card-badge role-dev" style="font-size:11px; padding:3px 10px; margin-bottom:8px; display:inline-block;">developer</span>
+          <div class="card-items">
+            <div class="card-item">✓ Everything user can</div>
+            <div class="card-item">✓ Integrations (providers)</div>
+            <div class="card-item">✓ Guardrails (edit)</div>
+            <div class="card-item">✓ Policies · Templates</div>
+            <div class="card-item">✓ Webhooks</div>
+            <div class="card-item">✓ API keys</div>
+            <div class="card-item">✓ Gauntlet red-team</div>
+            <div class="card-item">✗ Members</div>
+            <div class="card-item">✗ Billing · Settings</div>
+          </div>
+        </div>
+        <div>
+          <span class="card-badge role-admin" style="font-size:11px; padding:3px 10px; margin-bottom:8px; display:inline-block;">administrator</span>
+          <div class="card-items">
+            <div class="card-item">✓ Everything developer can</div>
+            <div class="card-item">✓ Members (invite/remove)</div>
+            <div class="card-item">✓ Role assignments</div>
+            <div class="card-item">✓ Billing · Settings</div>
+            <div class="card-item">✓ Tenant branding</div>
+            <div class="card-item">✓ Delete own account</div>
+            <div class="card-item">✗ Other orgs</div>
+            <div class="card-item">✗ Super Admin panel</div>
+          </div>
+        </div>
+        <div>
+          <span class="card-badge role-super" style="font-size:11px; padding:3px 10px; margin-bottom:8px; display:inline-block;">superuser</span>
+          <div class="card-items">
+            <div class="card-item highlight">✓ Everything admin can</div>
+            <div class="card-item highlight">✓ Access ANY org (no membership needed)</div>
+            <div class="card-item highlight">✓ Super Admin panel</div>
+            <div class="card-item highlight">✓ Delete any user</div>
+            <div class="card-item highlight">✓ Suspend / activate tenants</div>
+            <div class="card-item highlight">✓ Create new tenants</div>
+            <div class="card-item highlight">✓ Change any org's plan</div>
+            <div class="card-item highlight">✓ Promote others to superuser</div>
+            <div class="card-item highlight">✓ Reset any user's password</div>
+            <div class="card-item highlight">✓ Bypass suspended org check</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

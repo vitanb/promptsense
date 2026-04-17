@@ -8,68 +8,133 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
       :root {
-        --c-purple: #7F77DD; --c-purple-light: #EEEDFE; --c-purple-dark: #3C3489;
-        --c-green: #1D9E75; --c-red: #E24B4A; --c-amber: #BA7517;
-        --c-blue: #378ADD; --c-coral: #D85A30;
-        --c-bg: #ffffff; --c-bg2: #F8F8F7; --c-bg3: #F1EFE8;
-        --c-text: #1a1a1a; --c-text2: #555; --c-text3: #999;
-        --c-border: rgba(0,0,0,0.10); --c-border2: rgba(0,0,0,0.18);
-        --radius: 8px; --radius-lg: 12px;
-        --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.05);
-        --shadow-md: 0 4px 16px rgba(0,0,0,0.10);
-        --shadow-lg: 0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.06);
-        --transition: 0.15s ease;
+        /* ── Core dark palette ── */
+        --bg:   #09090b;
+        --bg2:  #111113;
+        --bg3:  #18181b;
+        --bg4:  #1c1c1f;
+        --bg5:  #232327;
+
+        --border:  rgba(255,255,255,0.07);
+        --border2: rgba(255,255,255,0.12);
+        --border3: rgba(255,255,255,0.20);
+
+        --text:  #f4f4f5;
+        --text2: #a1a1aa;
+        --text3: #71717a;
+        --text4: #52525b;
+
+        /* ── Violet accent ── */
+        --accent:        #7c3aed;
+        --accent-mid:    #8b5cf6;
+        --accent-light:  #a78bfa;
+        --accent-dim:    rgba(139,92,246,0.12);
+        --accent-glow:   rgba(139,92,246,0.22);
+        --accent-border: rgba(139,92,246,0.35);
+
+        /* ── Semantic ── */
+        --green:        #22c55e;
+        --green-dim:    rgba(34,197,94,0.12);
+        --green-border: rgba(34,197,94,0.3);
+
+        --red:          #ef4444;
+        --red-dim:      rgba(239,68,68,0.12);
+        --red-border:   rgba(239,68,68,0.3);
+
+        --amber:        #f59e0b;
+        --amber-dim:    rgba(245,158,11,0.12);
+        --amber-border: rgba(245,158,11,0.3);
+
+        --blue:         #3b82f6;
+        --blue-dim:     rgba(59,130,246,0.12);
+        --blue-border:  rgba(59,130,246,0.3);
+
+        --coral: #fb923c;
+
+        /* ── Legacy aliases so old inline styles keep working ── */
+        --c-purple:       var(--accent-mid);
+        --c-purple-light: var(--accent-dim);
+        --c-purple-dark:  var(--accent);
+        --c-green:        var(--green);
+        --c-red:          var(--red);
+        --c-amber:        var(--amber);
+        --c-blue:         var(--blue);
+        --c-coral:        var(--coral);
+        --c-bg:           var(--bg4);
+        --c-bg2:          var(--bg3);
+        --c-bg3:          var(--bg5);
+        --c-text:         var(--text);
+        --c-text2:        var(--text2);
+        --c-text3:        var(--text3);
+        --c-border:       var(--border);
+        --c-border2:      var(--border2);
+
+        /* ── Shape & motion ── */
+        --radius:    6px;
+        --radius-lg: 10px;
+        --radius-xl: 14px;
+
+        --shadow:    0 1px 2px rgba(0,0,0,0.5), 0 1px 6px rgba(0,0,0,0.3);
+        --shadow-md: 0 4px 16px rgba(0,0,0,0.6), 0 1px 3px rgba(0,0,0,0.4);
+        --shadow-lg: 0 8px 40px rgba(0,0,0,0.7), 0 2px 8px rgba(0,0,0,0.5);
+        --shadow-accent: 0 0 0 1px var(--accent-border), 0 4px 24px var(--accent-glow);
+
+        --transition:      0.15s ease;
+        --transition-slow: 0.25s ease;
+
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-        font-size: 14px; line-height: 1.6; color: var(--c-text); background: var(--c-bg);
-        -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+        font-size: 14px;
+        line-height: 1.6;
+        color: var(--text);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-feature-settings: 'cv02','cv03','cv04','cv11';
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --c-bg: #111; --c-bg2: #1a1a1a; --c-bg3: #222;
-          --c-text: #f0f0f0; --c-text2: #aaa; --c-text3: #666;
-          --c-border: rgba(255,255,255,0.10); --c-border2: rgba(255,255,255,0.18);
-          --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.2);
-          --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
-          --shadow-lg: 0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
-        }
-      }
-      html { scroll-behavior: smooth; }
-      a { color: inherit; text-decoration: none; }
+
+      html  { scroll-behavior: smooth; }
+      body  { background: var(--bg); }
+      a     { color: inherit; text-decoration: none; }
       button { font-family: inherit; cursor: pointer; }
       input, select, textarea { font-family: inherit; font-size: 13px; }
+      code, .mono { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
       #root { min-height: 100vh; }
 
       /* Selection */
-      ::selection { background: #7F77DD33; color: var(--c-text); }
+      ::selection { background: rgba(139,92,246,0.28); color: var(--text); }
 
-      /* Focus-visible — accessible keyboard outlines */
-      :focus-visible { outline: 2px solid var(--c-purple); outline-offset: 2px; border-radius: 4px; }
-      button:focus-visible, a:focus-visible { outline: 2px solid var(--c-purple); outline-offset: 2px; }
+      /* Focus */
+      :focus-visible { outline: 2px solid var(--accent-mid); outline-offset: 2px; border-radius: 4px; }
+      button:focus-visible, a:focus-visible { outline: 2px solid var(--accent-mid); outline-offset: 2px; }
 
-      /* Thin custom scrollbar */
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: var(--c-border2); border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: var(--c-text3); }
+      /* Scrollbar */
+      ::-webkit-scrollbar        { width: 5px; height: 5px; }
+      ::-webkit-scrollbar-track  { background: transparent; }
+      ::-webkit-scrollbar-thumb  { background: var(--border3); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: var(--text4); }
 
-      /* Global animations */
+      /* Animations */
       @keyframes spin     { to { transform: rotate(360deg); } }
       @keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
-      @keyframes slideUp  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      @keyframes scaleIn  { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
-      @keyframes pulse    { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      @keyframes slideUp  { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes scaleIn  { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+      @keyframes pulse    { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+      @keyframes shimmer  { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
-      /* Page-level fade-in */
-      .page-enter { animation: slideUp 0.2s ease both; }
+      /* Utility */
+      .page-enter { animation: slideUp 0.22s ease forwards; }
 
-      /* Skeleton pulse */
-      .skeleton { background: linear-gradient(90deg, var(--c-bg2) 25%, var(--c-bg3) 50%, var(--c-bg2) 75%);
-                  background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: var(--radius); }
-      @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+      .skeleton {
+        background: linear-gradient(90deg, var(--bg3) 25%, var(--bg5) 50%, var(--bg3) 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.6s infinite;
+        border-radius: var(--radius);
+      }
     </style>
   </head>
   <body>

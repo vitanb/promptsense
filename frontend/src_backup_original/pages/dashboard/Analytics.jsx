@@ -4,7 +4,7 @@ import { promptApi } from '../../services/api';
 import { MetricCard, Card, PageHeader, Spinner } from '../../components/UI';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-const COLORS = ['#8b5cf6','#22c55e','#fb923c','#3b82f6','#f59e0b','#ef4444'];
+const COLORS = ['#7F77DD','#1D9E75','#D85A30','#378ADD','#BA7517','#E24B4A'];
 
 // ── Tiny sub-components ────────────────────────────────────────────────────────
 
@@ -140,8 +140,8 @@ function DepartmentBreakdown({ rows }) {
             <XAxis type="number" tick={{ fontSize:10 }} />
             <YAxis type="category" dataKey="name" tick={{ fontSize:11 }} width={90} />
             <Tooltip />
-            <Bar dataKey="requests" fill="rgba(139,92,246,0.65)" stackId="a" radius={[0,2,2,0]} />
-            <Bar dataKey="flagged"  fill="rgba(239,68,68,0.65)" stackId="a" radius={[0,2,2,0]} />
+            <Bar dataKey="requests" fill="#7F77DD55" stackId="a" radius={[0,2,2,0]} />
+            <Bar dataKey="flagged"  fill="#E24B4A55" stackId="a" radius={[0,2,2,0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -277,8 +277,8 @@ export default function Analytics() {
                     <XAxis dataKey="time" tick={{ fontSize:10 }} interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize:10 }} />
                     <Tooltip />
-                    <Bar dataKey="passed"  fill="rgba(59,130,246,0.6)" stackId="a" />
-                    <Bar dataKey="flagged" fill="rgba(239,68,68,0.7)" stackId="a" radius={[2,2,0,0]} />
+                    <Bar dataKey="passed"  fill="#378ADD55" stackId="a" />
+                    <Bar dataKey="flagged" fill="#E24B4A55" stackId="a" radius={[2,2,0,0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : <div style={{ height:200, display:'flex', alignItems:'center', justifyContent:'center', color:'var(--c-text3)', fontSize:13 }}>No data for this period</div>}

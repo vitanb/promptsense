@@ -374,7 +374,7 @@ export default function Integrations() {
 
         {preset?.notes && (
           <div style={{ marginBottom:'1rem', padding:'10px 14px', borderRadius:'var(--radius)',
-                        background:'rgba(139,92,246,0.08)', border:'1px solid rgba(139,92,246,0.25)', color:'var(--accent-light)', fontSize:12, lineHeight:1.6 }}>
+                        background:'#EEF2FF', border:'0.5px solid #A5B4FC', color:'#3730A3', fontSize:12, lineHeight:1.6 }}>
             ℹ️ {preset.notes}
           </div>
         )}
