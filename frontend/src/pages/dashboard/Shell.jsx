@@ -33,6 +33,30 @@ const NAV = [
 
 const ROLE_COLORS = { user:'#378ADD', developer:'#BA7517', administrator:'#7F77DD' };
 
+function SignOutBtn({ onClick }) {
+  const [h, setH] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setH(true)}
+      onMouseLeave={() => setH(false)}
+      style={{
+        width: '100%', fontSize: 12, padding: '6px', borderRadius: 'var(--radius)',
+        border: '0.5px solid var(--c-border2)', cursor: 'pointer', fontFamily: 'inherit',
+        background: h ? 'var(--c-bg3)' : 'none',
+        color: h ? 'var(--c-text)' : 'var(--c-text2)',
+        transition: 'background var(--transition), color var(--transition)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>
+      Sign out
+    </button>
+  );
+}
+
 /**
  * Lightweight hook: checks how many onboarding steps are done.
  * During a free trial, guardrails are blocked (403), so we skip that API
@@ -101,14 +125,20 @@ export default function DashboardShell() {
 
   const progress = useOnboardingProgress(currentOrg?.org_id, onTrial || trialDead);
 
-  const sidebarStyle = { width:220, minHeight:'100vh', background:'var(--c-bg2)', borderRight:'0.5px solid var(--c-border)', display:'flex', flexDirection:'column', flexShrink:0 };
+  const sidebarStyle = {
+    width: 220, minHeight: '100vh', background: 'var(--c-bg2)',
+    borderRight: '0.5px solid var(--c-border)', display: 'flex',
+    flexDirection: 'column', flexShrink: 0,
+    boxShadow: '1px 0 0 var(--c-border)',
+  };
   const linkStyle = ({ isActive }) => ({
-    display:'flex', alignItems:'center', gap:9, padding:'7px 16px', fontSize:13,
-    color: isActive ? 'var(--c-text)' : 'var(--c-text2)',
-    background: isActive ? 'var(--c-bg3)' : 'transparent',
-    borderRadius:'var(--radius)', margin:'1px 8px',
-    fontWeight: isActive ? 500 : 400, textDecoration:'none',
-    transition:'background 0.1s',
+    display: 'flex', alignItems: 'center', gap: 9, padding: '6px 12px', fontSize: 13,
+    color: isActive ? 'var(--c-purple)' : 'var(--c-text2)',
+    background: isActive ? 'var(--c-purple)0f' : 'transparent',
+    borderRadius: 'var(--radius)', margin: '1px 8px',
+    fontWeight: isActive ? 600 : 400, textDecoration: 'none',
+    transition: 'background var(--transition), color var(--transition)',
+    borderLeft: isActive ? '2px solid var(--c-purple)' : '2px solid transparent',
   });
 
   // Current route segment (e.g. "guardrails")
@@ -146,14 +176,22 @@ export default function DashboardShell() {
       {/* Sidebar */}
       <aside style={sidebarStyle}>
         {/* Logo */}
-        <div style={{ padding:'20px 16px 12px', borderBottom:'0.5px solid var(--c-border)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <div style={{ width:26, height:26, background:'var(--c-purple)', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-              <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#fff" strokeWidth="1.5" fill="none"/><circle cx="7" cy="7" r="2" fill="#fff"/></svg>
+        <div style={{ padding: '18px 16px 14px', borderBottom: '0.5px solid var(--c-border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+            <div style={{
+              width: 30, height: 30,
+              background: 'linear-gradient(135deg, var(--c-purple), var(--c-purple-dark))',
+              borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              boxShadow: '0 2px 6px rgba(127,119,221,0.4)',
+            }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z" stroke="#fff" strokeWidth="1.5" fill="none"/>
+                <circle cx="7" cy="7" r="2.2" fill="#fff"/>
+              </svg>
             </div>
             <div>
-              <div style={{ fontSize:13, fontWeight:600, color:'var(--c-purple)' }}>PromptSense</div>
-              <div style={{ fontSize:10, color:'var(--c-text3)' }}>Enterprise</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-text)', letterSpacing: '-0.02em' }}>PromptSense</div>
+              <div style={{ fontSize: 10, color: 'var(--c-text3)', fontWeight: 500, letterSpacing: '0.02em' }}>Enterprise AI Guardrails</div>
             </div>
           </div>
         </div>
@@ -241,28 +279,36 @@ export default function DashboardShell() {
         </nav>
 
         {/* User footer */}
-        <div style={{ padding:'12px 16px', borderTop:'0.5px solid var(--c-border)' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-            <div style={{ width:28, height:28, borderRadius:'50%', background: isSuperuser ? 'var(--c-red)22' : 'var(--c-purple)22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:500, color: isSuperuser ? 'var(--c-red)' : 'var(--c-purple)' }}>
-              {user?.fullName?.slice(0,2).toUpperCase() || user?.email?.slice(0,2).toUpperCase()}
+        <div style={{ padding: '12px 10px', borderTop: '0.5px solid var(--c-border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '4px 6px' }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              background: isSuperuser
+                ? 'linear-gradient(135deg, #E24B4A, #c43636)'
+                : 'linear-gradient(135deg, var(--c-purple), var(--c-purple-dark))',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 600, color: '#fff',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+            }}>
+              {user?.fullName?.slice(0, 2).toUpperCase() || user?.email?.slice(0, 2).toUpperCase()}
             </div>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                <span style={{ fontSize:12, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.fullName || user?.email}</span>
-                {isSuperuser && <span style={{ fontSize:9, padding:'1px 5px', borderRadius:3, background:'var(--c-red)22', color:'var(--c-red)', fontWeight:600, flexShrink:0 }}>SUPER</span>}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.fullName || user?.email}</span>
+                {isSuperuser && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'var(--c-red)22', color: 'var(--c-red)', fontWeight: 700, flexShrink: 0 }}>SUPER</span>}
               </div>
-              <div style={{ fontSize:10, color:'var(--c-text3)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.email}</div>
+              <div style={{ fontSize: 10, color: 'var(--c-text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.email}</div>
             </div>
           </div>
-          <button onClick={handleLogout} style={{ width:'100%', fontSize:12, padding:'5px', borderRadius:'var(--radius)', border:'0.5px solid var(--c-border2)', background:'none', color:'var(--c-text2)', cursor:'pointer' }}>
-            Sign out
-          </button>
+          <SignOutBtn onClick={handleLogout} />
         </div>
       </aside>
 
       {/* Main content */}
-      <main style={{ flex:1, padding:'2rem', overflowY:'auto', minHeight:'100vh' }}>
-        <Outlet />
+      <main style={{ flex: 1, padding: '2rem', overflowY: 'auto', minHeight: '100vh', background: 'var(--c-bg)' }}>
+        <div className="page-enter">
+          <Outlet />
+        </div>
       </main>
     </div>
     </div>
