@@ -186,7 +186,7 @@ async function createApiKey(req, res) {
   const { name, expiresAt } = req.body;
   const raw = 'ps_live_' + crypto.randomBytes(24).toString('hex');
   const hash = crypto.createHash('sha256').update(raw).digest('hex');
-  const prefix = raw.slice(0, 20) + '...';
+  const prefix = raw.slice(0, 17) + '...'; // VARCHAR(20) limit: 17 chars + '...' = 20
 
   await query(
     'INSERT INTO api_keys (org_id,created_by,name,key_hash,key_prefix,expires_at) VALUES ($1,$2,$3,$4,$5,$6)',
