@@ -1,8 +1,10 @@
 const crypto = require('crypto');
-const { query } = require('../db/pool');
+const { query } = require('../db/pool');      // platform DB (orgs, users, memberships, api_keys)
 const { encrypt, decrypt } = require('../utils/encryption');
 const { sendInviteEmail } = require('../utils/email');
 const logger = require('../utils/logger');
+
+// Helpers: tenant DB is accessed via req.db (attached by loadOrg middleware)
 
 // ── MEMBERS ──────────────────────────────────────────────────────────────────
 async function listMembers(req, res) {
@@ -124,9 +126,9 @@ async function updateBranding(req, res) {
   res.json(org);
 }
 
-// ── PROVIDER CONNECTIONS ──────────────────────────────────────────────────────
+// ── PROVIDER CONNECTIONS (tenant DB) ─────────────────────────────────────────
 async function listProviders(req, res) {
-  const { rows } = await query(
+  const { rows } = await req.db.query(
     'SELECT id, provider, label, endpoint_url, model, max_tokens, system_prompt, enabled, created_at FROM provider_connections WHERE org_id=$1',
     [req.orgId]
   );
@@ -141,7 +143,7 @@ async function upsertProvider(req, res) {
 
     const encryptedKey = apiKey ? encrypt(apiKey) : undefined;
 
-    const { rows: [existing] } = await query('SELECT id FROM provider_connections WHERE org_id=$1 AND provider=$2', [req.orgId, provider]);
+    const { rows: [existing] } = await req.db.query('SELECT id FROM provider_connections WHERE org_id=$1 AND provider=$2', [req.orgId, provider]);
 
     if (existing) {
       const sets = ['label=COALESCE($1,label)', 'endpoint_url=COALESCE($2,endpoint_url)', 'model=COALESCE($3,model)',
@@ -149,14 +151,14 @@ async function upsertProvider(req, res) {
       const params = [label||null, endpointUrl||null, model||null, maxTokens||null, systemPrompt||null, enabled??null];
       if (encryptedKey) { sets.push(`encrypted_key=$${params.length+1}`); params.push(encryptedKey); }
       params.push(existing.id, req.orgId);
-      const { rows: [conn] } = await query(
+      const { rows: [conn] } = await req.db.query(
         `UPDATE provider_connections SET ${sets.join(',')} WHERE id=$${params.length-1} AND org_id=$${params.length} RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
         params
       );
       return res.json(conn);
     }
 
-    const { rows: [conn] } = await query(
+    const { rows: [conn] } = await req.db.query(
       `INSERT INTO provider_connections (org_id,provider,label,encrypted_key,endpoint_url,model,max_tokens,system_prompt,enabled)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,provider,label,endpoint_url,model,max_tokens,system_prompt,enabled`,
       [req.orgId, provider, label||provider, encryptedKey||null, endpointUrl||null, model||null, maxTokens||1000, systemPrompt||'You are a helpful assistant.', enabled??true]
@@ -169,15 +171,15 @@ async function upsertProvider(req, res) {
 }
 
 async function deleteProvider(req, res) {
-  await query('DELETE FROM provider_connections WHERE provider=$1 AND org_id=$2', [req.params.provider, req.orgId]);
+  await req.db.query('DELETE FROM provider_connections WHERE provider=$1 AND org_id=$2', [req.params.provider, req.orgId]);
   res.json({ deleted: true });
 }
 
-// ── DOWNSTREAM SYSTEMS (org-level CRUD) ──────────────────────────────────────
+// ── DOWNSTREAM SYSTEMS (tenant DB) ───────────────────────────────────────────
 const DOWNSTREAM_COLS = 'id,name,endpoint_url,http_method,body_template,response_field,timeout_ms,fallback_to_provider,enabled,created_at,updated_at';
 
 async function listDownstreams(req, res) {
-  const { rows } = await query(
+  const { rows } = await req.db.query(
     `SELECT ${DOWNSTREAM_COLS} FROM downstream_systems WHERE org_id=$1 ORDER BY created_at`,
     [req.orgId]
   );
@@ -185,13 +187,12 @@ async function listDownstreams(req, res) {
 }
 
 async function createDownstream(req, res) {
-  const { encrypt } = require('../utils/encryption');
-  const { validateDownstreamUrl, sanitizeExtraHeaders, ALLOWED_HTTP_METHODS } = require('../middleware/validate');
+  const { sanitizeExtraHeaders, ALLOWED_HTTP_METHODS } = require('../middleware/validate');
   let { name, endpointUrl, apiKey, httpMethod, extraHeaders, bodyTemplate, responseField, timeoutMs, fallbackToProvider, enabled } = req.body;
   if (!endpointUrl) return res.status(400).json({ error: 'endpointUrl is required' });
   httpMethod = (httpMethod || 'POST').toUpperCase();
   if (!ALLOWED_HTTP_METHODS.has(httpMethod)) return res.status(400).json({ error: 'Invalid HTTP method' });
-  const { rows: [ds] } = await query(
+  const { rows: [ds] } = await req.db.query(
     `INSERT INTO downstream_systems (org_id,name,endpoint_url,encrypted_api_key,http_method,extra_headers,body_template,response_field,timeout_ms,fallback_to_provider,enabled)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      RETURNING ${DOWNSTREAM_COLS}`,
@@ -204,7 +205,6 @@ async function createDownstream(req, res) {
 }
 
 async function updateDownstream(req, res) {
-  const { encrypt } = require('../utils/encryption');
   const { sanitizeExtraHeaders, ALLOWED_HTTP_METHODS } = require('../middleware/validate');
   let { name, endpointUrl, apiKey, httpMethod, extraHeaders, bodyTemplate, responseField, timeoutMs, fallbackToProvider, enabled } = req.body;
   if (httpMethod) {
@@ -212,7 +212,7 @@ async function updateDownstream(req, res) {
     if (!ALLOWED_HTTP_METHODS.has(httpMethod)) return res.status(400).json({ error: 'Invalid HTTP method' });
   }
   const encKey = apiKey ? encrypt(apiKey) : undefined;
-  const { rows: [ds] } = await query(
+  const { rows: [ds] } = await req.db.query(
     `UPDATE downstream_systems SET
        name=COALESCE($1,name), endpoint_url=COALESCE($2,endpoint_url),
        http_method=COALESCE($3,http_method), extra_headers=COALESCE($4,extra_headers),
@@ -230,32 +230,44 @@ async function updateDownstream(req, res) {
 }
 
 async function deleteDownstream(req, res) {
-  // Unlink any API keys pointing at this downstream before deleting
+  // api_keys lives in platform DB — unlink before deleting the downstream from tenant DB
   await query('UPDATE api_keys SET downstream_system_id=NULL WHERE downstream_system_id=$1 AND org_id=$2', [req.params.id, req.orgId]);
-  const { rowCount } = await query('DELETE FROM downstream_systems WHERE id=$1 AND org_id=$2', [req.params.id, req.orgId]);
+  const { rowCount } = await req.db.query('DELETE FROM downstream_systems WHERE id=$1 AND org_id=$2', [req.params.id, req.orgId]);
   if (!rowCount) return res.status(404).json({ error: 'Downstream not found' });
   res.json({ deleted: true });
 }
 
-// ── API KEYS ──────────────────────────────────────────────────────────────────
+// ── API KEYS (platform DB) ────────────────────────────────────────────────────
+// api_keys lives in the platform DB for auth routing; downstream_systems is in
+// the tenant DB. We fetch both separately and join in application code.
 async function listApiKeys(req, res) {
-  const { rows } = await query(
-    `SELECT ak.id, ak.name, ak.key_prefix, ak.last_used_at, ak.expires_at, ak.revoked, ak.created_at,
-            ak.downstream_system_id,
-            ds.name AS downstream_name, ds.endpoint_url AS downstream_url, ds.enabled AS downstream_enabled
-     FROM api_keys ak
-     LEFT JOIN downstream_systems ds ON ds.id = ak.downstream_system_id
-     WHERE ak.org_id=$1 ORDER BY ak.created_at DESC`,
-    [req.orgId]
-  );
-  res.json(rows);
+  const [{ rows: keys }, { rows: downstreams }] = await Promise.all([
+    query(
+      `SELECT id, name, key_prefix, last_used_at, expires_at, revoked, created_at, downstream_system_id
+       FROM api_keys WHERE org_id=$1 ORDER BY created_at DESC`,
+      [req.orgId]
+    ),
+    req.db.query(
+      'SELECT id, name, endpoint_url, enabled FROM downstream_systems WHERE org_id=$1',
+      [req.orgId]
+    ),
+  ]);
+
+  const dsMap = Object.fromEntries(downstreams.map(d => [d.id, d]));
+  const result = keys.map(k => ({
+    ...k,
+    downstream_name:    k.downstream_system_id ? (dsMap[k.downstream_system_id]?.name    ?? null) : null,
+    downstream_url:     k.downstream_system_id ? (dsMap[k.downstream_system_id]?.endpoint_url ?? null) : null,
+    downstream_enabled: k.downstream_system_id ? (dsMap[k.downstream_system_id]?.enabled  ?? null) : null,
+  }));
+  res.json(result);
 }
 
 async function createApiKey(req, res) {
   const { name, expiresAt, downstreamId } = req.body;
-  // Validate downstream belongs to this org if provided
+  // Validate downstream belongs to this org (tenant DB) if provided
   if (downstreamId) {
-    const { rows } = await query('SELECT id FROM downstream_systems WHERE id=$1 AND org_id=$2', [downstreamId, req.orgId]);
+    const { rows } = await req.db.query('SELECT id FROM downstream_systems WHERE id=$1 AND org_id=$2', [downstreamId, req.orgId]);
     if (!rows[0]) return res.status(400).json({ error: 'Downstream not found in this organisation' });
   }
   const raw = 'ps_live_' + crypto.randomBytes(24).toString('hex');
@@ -336,12 +348,12 @@ async function getComplianceTemplates(req, res) {
   res.json(getIndustryTemplates());
 }
 
-// ── ACTIVATION STATUS ─────────────────────────────────────────────────────────
+// ── ACTIVATION STATUS (tenant DB) ────────────────────────────────────────────
 async function getActivationStatus(req, res) {
   const [providers, requests, flags] = await Promise.all([
-    query('SELECT 1 FROM provider_connections WHERE org_id=$1 AND enabled=true LIMIT 1', [req.orgId]),
-    query('SELECT 1 FROM audit_events WHERE org_id=$1 LIMIT 1', [req.orgId]),
-    query("SELECT 1 FROM audit_events WHERE org_id=$1 AND passed=false LIMIT 1", [req.orgId]),
+    req.db.query('SELECT 1 FROM provider_connections WHERE org_id=$1 AND enabled=true LIMIT 1', [req.orgId]),
+    req.db.query('SELECT 1 FROM audit_events WHERE org_id=$1 LIMIT 1', [req.orgId]),
+    req.db.query('SELECT 1 FROM audit_events WHERE org_id=$1 AND passed=false LIMIT 1', [req.orgId]),
   ]);
   res.json({
     providerConnected: providers.rows.length > 0,

@@ -34,34 +34,43 @@ router.delete('/api-keys/:id/delete', requireSuperuser, ctrl.deleteApiKey);
 // Activation status
 router.get('/activation', ctrl.getActivationStatus);
 
-// Audit export — CSV download
+// Audit export — CSV download (audit_events from tenant DB, user emails from platform DB)
 router.get('/audit-export', requireTrialAccess(), async (req, res) => {
-  const { query } = require('../db/pool');
+  const { query: platformQuery } = require('../db/pool');
   const { from, to, passed } = req.query;
 
-  const conditions = ['ae.org_id = $1'];
+  const conditions = ['org_id = $1'];
   const params = [req.orgId];
   let idx = 2;
 
-  if (from)   { conditions.push(`ae.created_at >= $${idx++}`); params.push(from); }
-  if (to)     { conditions.push(`ae.created_at <= $${idx++}`); params.push(to); }
+  if (from)   { conditions.push(`created_at >= $${idx++}`); params.push(from); }
+  if (to)     { conditions.push(`created_at <= $${idx++}`); params.push(to); }
   if (passed !== undefined && passed !== '') {
-    conditions.push(`ae.passed = $${idx++}`);
+    conditions.push(`passed = $${idx++}`);
     params.push(passed === 'true');
   }
 
   const where = conditions.join(' AND ');
-  const { rows } = await query(
-    `SELECT ae.id, ae.created_at, ae.provider, ae.route, ae.passed,
-            ae.input_text, ae.output_text, ae.input_flags, ae.output_flags,
-            ae.latency_ms, ae.tokens_used, u.email AS user_email
-     FROM audit_events ae
-     LEFT JOIN users u ON u.id = ae.user_id
+  const { rows } = await req.db.query(
+    `SELECT id, created_at, user_id, provider, route, passed,
+            input_text, output_text, input_flags, output_flags, latency_ms, tokens_used
+     FROM audit_events
      WHERE ${where}
-     ORDER BY ae.created_at DESC
+     ORDER BY created_at DESC
      LIMIT 10000`,
     params
   );
+
+  // Resolve user emails from platform DB
+  const userIds = [...new Set(rows.map(r => r.user_id).filter(Boolean))];
+  let emailMap = {};
+  if (userIds.length > 0) {
+    const { rows: users } = await platformQuery(
+      `SELECT id, email FROM users WHERE id = ANY($1)`,
+      [userIds]
+    );
+    emailMap = Object.fromEntries(users.map(u => [u.id, u.email]));
+  }
 
   // Build CSV
   const escape = v => {
@@ -71,10 +80,11 @@ router.get('/audit-export', requireTrialAccess(), async (req, res) => {
       ? `"${s.replace(/"/g, '""')}"` : s;
   };
 
+  const enriched = rows.map(r => ({ ...r, user_email: emailMap[r.user_id] || '' }));
   const headers = ['id','created_at','user_email','provider','route','passed','latency_ms','tokens_used','input_flags','output_flags','input_text','output_text'];
   const csv = [
     headers.join(','),
-    ...rows.map(r => headers.map(h => escape(r[h])).join(','))
+    ...enriched.map(r => headers.map(h => escape(r[h])).join(','))
   ].join('\r\n');
 
   const filename = `promptsense-audit-${new Date().toISOString().split('T')[0]}.csv`;
@@ -85,28 +95,40 @@ router.get('/audit-export', requireTrialAccess(), async (req, res) => {
 
 // Compliance report — print-ready HTML (user saves as PDF via browser)
 router.get('/audit-report', requireTrialAccess(), async (req, res) => {
-  const { query } = require('../db/pool');
+  const { query: platformQuery } = require('../db/pool');
   const { from, to } = req.query;
 
-  const conditions = ['ae.org_id = $1'];
+  const conditions = ['org_id = $1'];
   const params = [req.orgId];
   let idx = 2;
-  if (from) { conditions.push(`ae.created_at >= $${idx++}`); params.push(from); }
-  if (to)   { conditions.push(`ae.created_at <= $${idx++}`); params.push(to); }
+  if (from) { conditions.push(`created_at >= $${idx++}`); params.push(from); }
+  if (to)   { conditions.push(`created_at <= $${idx++}`); params.push(to); }
   const where = conditions.join(' AND ');
 
-  const [{ rows: events }, { rows: [stats] }, { rows: topFlags }, { rows: [orgRow] }] = await Promise.all([
-    query(`SELECT ae.id, ae.created_at, ae.provider, ae.route, ae.passed, ae.input_flags, ae.latency_ms, u.email AS user_email
-           FROM audit_events ae LEFT JOIN users u ON u.id=ae.user_id WHERE ${where} ORDER BY ae.created_at DESC LIMIT 500`, params),
-    query(`SELECT COUNT(*) AS total,
-                  SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS passed_count,
-                  SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) AS blocked_count,
-                  ROUND(AVG(latency_ms)) AS avg_latency,
-                  SUM(tokens_used) AS total_tokens
-           FROM audit_events ae WHERE ${where}`, params),
-    query(`SELECT unnest(input_flags) AS flag, COUNT(*) AS cnt FROM audit_events ae WHERE ${where} AND input_flags != '{}' GROUP BY flag ORDER BY cnt DESC LIMIT 10`, params),
-    query(`SELECT name FROM organizations WHERE id=$1`, [req.orgId]),
+  // Fetch audit data from tenant DB + org name from platform DB
+  const [{ rows: rawEvents }, { rows: [stats] }, { rows: topFlags }, { rows: [orgRow] }] = await Promise.all([
+    req.db.query(`SELECT id, created_at, user_id, provider, route, passed, input_flags, latency_ms
+                  FROM audit_events WHERE ${where} ORDER BY created_at DESC LIMIT 500`, params),
+    req.db.query(`SELECT COUNT(*) AS total,
+                         SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS passed_count,
+                         SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) AS blocked_count,
+                         ROUND(AVG(latency_ms)) AS avg_latency,
+                         SUM(tokens_used) AS total_tokens
+                  FROM audit_events WHERE ${where}`, params),
+    req.db.query(`SELECT unnest(input_flags) AS flag, COUNT(*) AS cnt
+                  FROM audit_events WHERE ${where} AND input_flags != '{}'
+                  GROUP BY flag ORDER BY cnt DESC LIMIT 10`, params),
+    platformQuery(`SELECT name FROM organizations WHERE id=$1`, [req.orgId]),
   ]);
+
+  // Resolve user emails from platform DB
+  const userIds = [...new Set(rawEvents.map(e => e.user_id).filter(Boolean))];
+  let emailMap = {};
+  if (userIds.length > 0) {
+    const { rows: users } = await platformQuery('SELECT id, email FROM users WHERE id = ANY($1)', [userIds]);
+    emailMap = Object.fromEntries(users.map(u => [u.id, u.email]));
+  }
+  const events = rawEvents.map(e => ({ ...e, user_email: emailMap[e.user_id] || null }));
 
   const total = parseInt(stats?.total || 0);
   const passed = parseInt(stats?.passed_count || 0);

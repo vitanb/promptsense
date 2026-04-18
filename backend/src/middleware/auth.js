@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../db/pool');
+const { getTenantDb } = require('../db/tenantPool');
 const logger = require('../utils/logger');
 
 // Lazy-load to avoid circular dependency (auth.controller → auth.js → auth.controller)
@@ -11,6 +12,9 @@ function getRevokedJtiCache() {
 // User fields are embedded in the token payload (set at login) so we skip the DB query on every request.
 // The /auth/me endpoint is the only place that re-fetches from DB to get fresh data when needed.
 async function authenticate(req, res, next) {
+  // API-key authenticated requests don't carry a JWT — skip JWT validation
+  if (req.apiKeyAuth) return next();
+
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
 
@@ -55,25 +59,62 @@ async function authenticate(req, res, next) {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Load org membership + role into req.membership
+// Shared org SELECT fragment (platform DB)
+const ORG_SELECT = `
+  SELECT o.id as org_id, o.name as org_name, o.slug, o.plan_id,
+         o.subscription_status, o.tenant_status, o.deleted_at,
+         o.primary_color, o.logo_url, o.custom_domain, o.timezone,
+         o.settings, o.tenant_db_url,
+         (o.created_at + INTERVAL '7 days') AS trial_ends_at,
+         (o.subscription_status = 'active')  AS is_paid,
+         p.name as plan_name, p.requests_per_month,
+         p.members_limit, p.guardrails_limit, p.webhooks_limit
+  FROM organizations o JOIN plans p ON p.id = o.plan_id`;
+
+/**
+ * Attach the tenant database handle to req.db.
+ * If the org has a dedicated tenant_db_url, use it; otherwise fall back to the
+ * platform pool (supports orgs that pre-date per-tenant isolation).
+ */
+function attachTenantDb(req, org) {
+  if (org.tenant_db_url) {
+    req.db = getTenantDb(org.org_id, org.tenant_db_url);
+  } else {
+    // Fallback for legacy orgs without a dedicated tenant DB — use platform pool
+    const { query: platformQuery } = require('../db/pool');
+    req.db = { query: platformQuery };
+    logger.warn('Org has no tenant_db_url — using platform pool', { orgId: org.org_id });
+  }
+}
+
+// Load org membership + role into req and attach tenant DB as req.db
 async function loadOrg(req, res, next) {
   const orgId = req.params.orgId || req.headers['x-org-id'];
   if (!orgId) return res.status(400).json({ error: 'Missing org ID' });
   if (!UUID_RE.test(orgId)) return res.status(400).json({ error: 'Invalid org ID — please log out and back in' });
 
-  // Superusers get full org access regardless of membership
+  // ── API key auth: org access already validated by the key, skip membership check ──
+  if (req.apiKeyAuth) {
+    const { rows: orgRows } = await query(
+      `${ORG_SELECT} WHERE o.id = $1`,
+      [orgId]
+    );
+    if (!orgRows[0]) return res.status(404).json({ error: 'Organization not found' });
+    if (orgRows[0].deleted_at) return res.status(403).json({ error: 'This organization has been deleted', code: 'ORG_DELETED' });
+    if (orgRows[0].tenant_status === 'suspended') {
+      return res.status(402).json({ error: 'This organization has been suspended.', code: 'ORG_SUSPENDED' });
+    }
+    req.org = orgRows[0];
+    req.orgId = orgId;
+    req.role = 'developer'; // API key callers have developer-level access
+    attachTenantDb(req, orgRows[0]);
+    return next();
+  }
+
+  // ── Superusers get full org access regardless of membership ──
   if (req.isSuperuser) {
     const { rows: orgRows } = await query(
-      `SELECT o.id as org_id, o.name as org_name, o.slug, o.plan_id,
-              o.subscription_status, o.tenant_status, o.deleted_at,
-              o.primary_color, o.logo_url, o.custom_domain, o.timezone,
-              o.settings,
-              (o.created_at + INTERVAL '7 days') AS trial_ends_at,
-              (o.subscription_status = 'active')  AS is_paid,
-              p.name as plan_name, p.requests_per_month,
-              p.members_limit, p.guardrails_limit, p.webhooks_limit
-       FROM organizations o JOIN plans p ON p.id = o.plan_id
-       WHERE o.id = $1`,
+      `${ORG_SELECT} WHERE o.id = $1`,
       [orgId]
     );
     if (!orgRows[0]) return res.status(404).json({ error: 'Organization not found' });
@@ -81,30 +122,21 @@ async function loadOrg(req, res, next) {
     req.org = orgRows[0];
     req.orgId = orgId;
     req.role = 'administrator'; // superusers act as administrators in any org
+    attachTenantDb(req, orgRows[0]);
     return next();
   }
 
+  // ── Standard JWT auth: verify membership ────────────────────────────────────
   const { rows } = await query(
-    `SELECT m.role, m.active, o.id as org_id, o.name as org_name, o.slug, o.plan_id,
-            o.subscription_status, o.tenant_status, o.deleted_at,
-            o.primary_color, o.logo_url, o.custom_domain, o.timezone,
-            o.settings,
-            (o.created_at + INTERVAL '7 days') AS trial_ends_at,
-            (o.subscription_status = 'active')  AS is_paid,
-            p.name as plan_name, p.requests_per_month,
-            p.members_limit, p.guardrails_limit, p.webhooks_limit
-     FROM memberships m
-     JOIN organizations o ON o.id = m.org_id
-     JOIN plans p ON p.id = o.plan_id
+    `${ORG_SELECT}
+     JOIN memberships m ON m.org_id = o.id
      WHERE m.user_id = $1 AND m.org_id = $2`,
     [req.userId, orgId]
   );
   if (!rows[0] || !rows[0].active) return res.status(403).json({ error: 'Access denied to this organization' });
 
-  // Block access to deleted tenants
   if (rows[0].deleted_at) return res.status(403).json({ error: 'This organization has been deleted', code: 'ORG_DELETED' });
 
-  // Block access to suspended tenants
   if (rows[0].tenant_status === 'suspended') {
     return res.status(402).json({
       error: 'This organization has been suspended. Please contact support.',
@@ -115,6 +147,7 @@ async function loadOrg(req, res, next) {
   req.org = rows[0];
   req.orgId = orgId;
   req.role = rows[0].role;
+  attachTenantDb(req, rows[0]);
   next();
 }
 

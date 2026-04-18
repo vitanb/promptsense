@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { query } = require('../db/pool');
+const { query: platformQuery } = require('../db/pool'); // platform DB — for user lookups
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 
@@ -345,9 +345,9 @@ async function callProvider(conn, apiKey, probePrompt) {
   return { response, latencyMs: Date.now() - t0 };
 }
 
-// ── Run guardrails against text ───────────────────────────────────────────────
-async function runGuardrails(orgId, text, direction) {
-  const { rows } = await query(
+// ── Run guardrails against text (tenant DB) ───────────────────────────────────
+async function runGuardrails(db, orgId, text, direction) {
+  const { rows } = await db.query(
     "SELECT * FROM guardrails WHERE org_id=$1 AND enabled=true AND (type=$2 OR type='both') ORDER BY sort_order",
     [orgId, direction]
   );
@@ -361,14 +361,13 @@ async function runGuardrails(orgId, text, direction) {
   return flags;
 }
 
-// ── Background Run Engine ─────────────────────────────────────────────────────
-async function executeRun(runId, orgId, conn, apiKey, probes) {
+// ── Background Run Engine (tenant DB) ────────────────────────────────────────
+async function executeRun(db, runId, orgId, conn, apiKey, probes) {
   let blocked = 0, escaped = 0, errored = 0;
 
   for (const probe of probes) {
     try {
-      // Check input guardrails first
-      const inputFlags = await runGuardrails(orgId, probe.prompt, 'input');
+      const inputFlags = await runGuardrails(db, orgId, probe.prompt, 'input');
       const inputBlocked = inputFlags.length > 0;
 
       let response = '';
@@ -378,36 +377,31 @@ async function executeRun(runId, orgId, conn, apiKey, probes) {
       let probeBlocked = false;
 
       if (inputBlocked) {
-        // Guardrail caught the probe on the way in — excellent
         probeBlocked = true;
         response = `[Blocked by input guardrail: ${inputFlags.join(', ')}]`;
         blocked++;
       } else {
-        // Send to LLM
         const result = await callProvider(conn, apiKey, probe.prompt);
         response = result.response;
         latencyMs = result.latencyMs;
 
-        // Check output guardrails
-        outputFlags = await runGuardrails(orgId, response, 'output');
+        outputFlags = await runGuardrails(db, orgId, response, 'output');
         const outputBlocked = outputFlags.length > 0;
 
         if (outputBlocked) {
           probeBlocked = true;
           blocked++;
         } else if (looksLikeRefusal(response)) {
-          // Model refused on its own — counts as blocked (good)
           probeBlocked = true;
           blocked++;
         } else {
-          // Attack slipped through — escaped
           probeEscaped = true;
           escaped++;
         }
       }
 
       const allFlags = [...inputFlags, ...outputFlags];
-      await query(
+      await db.query(
         `INSERT INTO gauntlet_results
            (run_id, category, attack_name, severity, probe_prompt, response, escaped, blocked, flags, latency_ms)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -416,7 +410,7 @@ async function executeRun(runId, orgId, conn, apiKey, probes) {
       );
     } catch (err) {
       errored++;
-      await query(
+      await db.query(
         `INSERT INTO gauntlet_results
            (run_id, category, attack_name, severity, probe_prompt, escaped, blocked, error)
          VALUES ($1,$2,$3,$4,$5,false,false,$6)`,
@@ -426,14 +420,10 @@ async function executeRun(runId, orgId, conn, apiKey, probes) {
     }
   }
 
-  // Mark run complete
-  await query(
-    `UPDATE gauntlet_runs
-     SET status='completed', completed_at=NOW(), blocked=$1, escaped=$2, errored=$3
-     WHERE id=$4`,
+  await db.query(
+    `UPDATE gauntlet_runs SET status='completed', completed_at=NOW(), blocked=$1, escaped=$2, errored=$3 WHERE id=$4`,
     [blocked, escaped, errored, runId]
   );
-
   logger.info('Gauntlet run completed', { runId, blocked, escaped, errored, total: probes.length });
 }
 
@@ -453,20 +443,27 @@ async function listCategories(req, res) {
 async function listRuns(req, res) {
   const { page = 1, limit = 20 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
-  const { rows } = await query(
-    `SELECT r.*, u.full_name as creator_name, u.email as creator_email
-     FROM gauntlet_runs r
-     LEFT JOIN users u ON u.id = r.created_by
-     WHERE r.org_id=$1
-     ORDER BY r.created_at DESC
-     LIMIT $2 OFFSET $3`,
-    [req.orgId, parseInt(limit), offset]
-  );
-  const { rows: [{ count }] } = await query(
-    'SELECT COUNT(*) FROM gauntlet_runs WHERE org_id=$1',
-    [req.orgId]
-  );
-  res.json({ runs: rows, total: parseInt(count) });
+  const [{ rows }, { rows: [{ count }] }] = await Promise.all([
+    req.db.query(
+      `SELECT * FROM gauntlet_runs WHERE org_id=$1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [req.orgId, parseInt(limit), offset]
+    ),
+    req.db.query('SELECT COUNT(*) FROM gauntlet_runs WHERE org_id=$1', [req.orgId]),
+  ]);
+
+  // Resolve creator names from platform DB
+  const creatorIds = [...new Set(rows.map(r => r.created_by).filter(Boolean))];
+  let creatorMap = {};
+  if (creatorIds.length > 0) {
+    const { rows: users } = await platformQuery('SELECT id, full_name, email FROM users WHERE id = ANY($1)', [creatorIds]);
+    creatorMap = Object.fromEntries(users.map(u => [u.id, u]));
+  }
+  const enriched = rows.map(r => ({
+    ...r,
+    creator_name:  r.created_by ? (creatorMap[r.created_by]?.full_name || creatorMap[r.created_by]?.email || null) : null,
+    creator_email: r.created_by ? (creatorMap[r.created_by]?.email || null) : null,
+  }));
+  res.json({ runs: enriched, total: parseInt(count) });
 }
 
 // POST /orgs/:orgId/gauntlet/runs — create + kick off async run
@@ -475,8 +472,7 @@ async function createRun(req, res) {
   if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
   if (!providerName) return res.status(400).json({ error: 'provider is required' });
 
-  // Load provider
-  const { rows: [conn] } = await query(
+  const { rows: [conn] } = await req.db.query(
     'SELECT * FROM provider_connections WHERE org_id=$1 AND provider=$2 AND enabled=true',
     [req.orgId, providerName]
   );
@@ -484,27 +480,21 @@ async function createRun(req, res) {
   const apiKey = decrypt(conn.encrypted_key);
   if (!apiKey) return res.status(400).json({ error: 'Provider API key could not be decrypted' });
 
-  // Filter probes to requested categories (or all if none specified)
   const probes = categories.length > 0
     ? ATTACK_LIBRARY.filter(p => categories.includes(p.category))
     : ATTACK_LIBRARY;
-
   if (probes.length === 0) return res.status(400).json({ error: 'No probes match the selected categories' });
 
-  // Create run record
-  const { rows: [run] } = await query(
+  const { rows: [run] } = await req.db.query(
     `INSERT INTO gauntlet_runs (org_id, created_by, name, provider, model, categories, status, total_probes, started_at)
      VALUES ($1,$2,$3,$4,$5,$6,'running',$7,NOW()) RETURNING *`,
     [req.orgId, req.userId, name.trim(), providerName, conn.model, categories.length > 0 ? categories : Object.keys(CATEGORY_LABELS), probes.length]
   );
 
-  // Kick off async run — don't await
-  executeRun(run.id, req.orgId, conn, apiKey, probes).catch(async (err) => {
+  const db = req.db;
+  executeRun(db, run.id, req.orgId, conn, apiKey, probes).catch(async (err) => {
     logger.error('Gauntlet run failed fatally', { runId: run.id, error: err.message });
-    await query(
-      "UPDATE gauntlet_runs SET status='failed', error=$1, completed_at=NOW() WHERE id=$2",
-      [err.message, run.id]
-    );
+    await db.query("UPDATE gauntlet_runs SET status='failed', error=$1, completed_at=NOW() WHERE id=$2", [err.message, run.id]);
   });
 
   res.status(201).json(run);
@@ -513,15 +503,18 @@ async function createRun(req, res) {
 // GET /orgs/:orgId/gauntlet/runs/:runId
 async function getRun(req, res) {
   const { runId } = req.params;
-  const { rows: [run] } = await query(
-    `SELECT r.*, u.full_name as creator_name
-     FROM gauntlet_runs r
-     LEFT JOIN users u ON u.id = r.created_by
-     WHERE r.id=$1 AND r.org_id=$2`,
+  const { rows: [run] } = await req.db.query(
+    'SELECT * FROM gauntlet_runs WHERE id=$1 AND org_id=$2',
     [runId, req.orgId]
   );
   if (!run) return res.status(404).json({ error: 'Run not found' });
-  res.json(run);
+
+  let creator_name = null;
+  if (run.created_by) {
+    const { rows: [u] } = await platformQuery('SELECT full_name, email FROM users WHERE id=$1', [run.created_by]);
+    creator_name = u?.full_name || u?.email || null;
+  }
+  res.json({ ...run, creator_name });
 }
 
 // GET /orgs/:orgId/gauntlet/runs/:runId/results
@@ -529,11 +522,7 @@ async function getResults(req, res) {
   const { runId } = req.params;
   const { category, escaped } = req.query;
 
-  // Verify ownership
-  const { rows: [run] } = await query(
-    'SELECT id FROM gauntlet_runs WHERE id=$1 AND org_id=$2',
-    [runId, req.orgId]
-  );
+  const { rows: [run] } = await req.db.query('SELECT id FROM gauntlet_runs WHERE id=$1 AND org_id=$2', [runId, req.orgId]);
   if (!run) return res.status(404).json({ error: 'Run not found' });
 
   const conditions = ['run_id=$1'];
@@ -542,7 +531,7 @@ async function getResults(req, res) {
   if (category) { conditions.push(`category=$${idx++}`); params.push(category); }
   if (escaped !== undefined) { conditions.push(`escaped=$${idx++}`); params.push(escaped === 'true'); }
 
-  const { rows } = await query(
+  const { rows } = await req.db.query(
     `SELECT * FROM gauntlet_results WHERE ${conditions.join(' AND ')} ORDER BY severity DESC, created_at`,
     params
   );
@@ -552,7 +541,7 @@ async function getResults(req, res) {
 // DELETE /orgs/:orgId/gauntlet/runs/:runId
 async function deleteRun(req, res) {
   const { runId } = req.params;
-  await query('DELETE FROM gauntlet_runs WHERE id=$1 AND org_id=$2', [runId, req.orgId]);
+  await req.db.query('DELETE FROM gauntlet_runs WHERE id=$1 AND org_id=$2', [runId, req.orgId]);
   res.json({ deleted: true });
 }
 

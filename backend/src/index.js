@@ -115,37 +115,49 @@ app.use((req, res) => res.status(404).json({ error: `Route ${req.method} ${req.p
 // ── Scheduled jobs ────────────────────────────────────────────────────────────
 const cron = require('node-cron');
 const { query: dbQuery } = require('./db/pool');
+const { getTenantDb } = require('./db/tenantPool');
 const { sendActivationNudgeEmail } = require('./utils/email');
 const { sendDailyDigest } = require('./utils/slack');
 
 // Activation nudge — runs daily at 10:00 AM UTC.
 // Emails users whose org was created 48–72 hours ago and hasn't fully activated.
+// Tenant-specific data (providers, audit_events) is queried from each org's tenant DB.
 cron.schedule('0 10 * * *', async () => {
   logger.info('⏰ Running activation nudge cron');
   try {
-    // Find orgs created 48–72 hours ago that have not fully activated
+    // Find orgs created 48–72 hours ago (platform DB)
     const { rows: orgs } = await dbQuery(`
-      SELECT o.id, o.name,
-             u.email, u.full_name,
-             (SELECT COUNT(*) FROM provider_connections pc WHERE pc.org_id=o.id AND pc.enabled=true) AS providers,
-             (SELECT COUNT(*) FROM audit_events ae WHERE ae.org_id=o.id) AS requests,
-             (SELECT COUNT(*) FROM audit_events ae WHERE ae.org_id=o.id AND ae.passed=false) AS flags
+      SELECT o.id, o.name, o.tenant_db_url,
+             u.email, u.full_name
       FROM organizations o
       JOIN memberships m ON m.org_id=o.id AND m.role='administrator'
       JOIN users u ON u.id=m.user_id
       WHERE o.created_at BETWEEN NOW() - INTERVAL '72 hours' AND NOW() - INTERVAL '48 hours'
         AND o.deleted_at IS NULL
     `);
+
     for (const org of orgs) {
-      const completed = {
-        providerConnected: parseInt(org.providers) > 0,
-        firstRequestSent:  parseInt(org.requests) > 0,
-        guardrailFired:    parseInt(org.flags) > 0,
-      };
-      const allDone = Object.values(completed).every(Boolean);
-      if (!allDone) {
-        await sendActivationNudgeEmail({ email: org.email, full_name: org.full_name }, org.name, completed);
-        logger.info('📧 Activation nudge sent', { org: org.name, email: org.email });
+      try {
+        // Query activation milestones from tenant DB
+        const db = getTenantDb(org.id, org.tenant_db_url);
+        const [providers, requests, flags] = await Promise.all([
+          db.query('SELECT 1 FROM provider_connections WHERE org_id=$1 AND enabled=true LIMIT 1', [org.id]),
+          db.query('SELECT 1 FROM audit_events WHERE org_id=$1 LIMIT 1', [org.id]),
+          db.query('SELECT 1 FROM audit_events WHERE org_id=$1 AND passed=false LIMIT 1', [org.id]),
+        ]);
+
+        const completed = {
+          providerConnected: providers.rows.length > 0,
+          firstRequestSent:  requests.rows.length > 0,
+          guardrailFired:    flags.rows.length > 0,
+        };
+        const allDone = Object.values(completed).every(Boolean);
+        if (!allDone) {
+          await sendActivationNudgeEmail({ email: org.email, full_name: org.full_name }, org.name, completed);
+          logger.info('📧 Activation nudge sent', { org: org.name, email: org.email });
+        }
+      } catch (err) {
+        logger.error('Activation nudge failed for org', { org: org.name, error: err.message });
       }
     }
   } catch (err) {
@@ -155,6 +167,7 @@ cron.schedule('0 10 * * *', async () => {
 
 // Slack daily digest — runs every day at 9:00 AM UTC.
 // Sends yesterday's stats to any org that has slack_digest_url configured.
+// Stats are queried from each org's isolated tenant DB.
 cron.schedule('0 9 * * *', async () => {
   logger.info('⏰ Running Slack daily digest cron');
   try {
@@ -162,11 +175,10 @@ cron.schedule('0 9 * * *', async () => {
     const dayStart  = new Date(yesterday); dayStart.setHours(0,0,0,0);
     const dayEnd    = new Date(yesterday); dayEnd.setHours(23,59,59,999);
 
-    // Find all orgs with Slack digest enabled
+    // Find all orgs with Slack digest enabled (platform DB)
     const { rows: orgs } = await dbQuery(`
-      SELECT id, name,
-             settings->>'slack_digest_url' AS digest_url,
-             settings->>'slack_alerts_enabled' AS alerts_enabled
+      SELECT id, name, tenant_db_url,
+             settings->>'slack_digest_url' AS digest_url
       FROM organizations
       WHERE settings->>'slack_digest_url' IS NOT NULL
         AND settings->>'slack_digest_url' != ''
@@ -178,18 +190,20 @@ cron.schedule('0 9 * * *', async () => {
 
     for (const org of orgs) {
       try {
+        // Query stats from tenant DB
+        const db = getTenantDb(org.id, org.tenant_db_url);
         const [{ rows: [stats] }, { rows: topFlags }] = await Promise.all([
-          dbQuery(`SELECT COUNT(*) AS total,
-                          SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS passed,
-                          SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) AS blocked,
-                          ROUND(AVG(latency_ms)) AS avg_latency
-                   FROM audit_events
-                   WHERE org_id=$1 AND created_at BETWEEN $2 AND $3`,
+          db.query(`SELECT COUNT(*) AS total,
+                           SUM(CASE WHEN passed THEN 1 ELSE 0 END) AS passed,
+                           SUM(CASE WHEN NOT passed THEN 1 ELSE 0 END) AS blocked,
+                           ROUND(AVG(latency_ms)) AS avg_latency
+                    FROM audit_events
+                    WHERE org_id=$1 AND created_at BETWEEN $2 AND $3`,
             [org.id, dayStart, dayEnd]),
-          dbQuery(`SELECT unnest(input_flags) AS flag, COUNT(*) AS cnt
-                   FROM audit_events
-                   WHERE org_id=$1 AND created_at BETWEEN $2 AND $3 AND input_flags != '{}'
-                   GROUP BY flag ORDER BY cnt DESC LIMIT 5`,
+          db.query(`SELECT unnest(input_flags) AS flag, COUNT(*) AS cnt
+                    FROM audit_events
+                    WHERE org_id=$1 AND created_at BETWEEN $2 AND $3 AND input_flags != '{}'
+                    GROUP BY flag ORDER BY cnt DESC LIMIT 5`,
             [org.id, dayStart, dayEnd]),
         ]);
 

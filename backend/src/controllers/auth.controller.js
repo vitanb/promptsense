@@ -3,8 +3,8 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../db/pool');
+const { provisionTenantDb } = require('../db/provision');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
-const { SYSTEM_GUARDRAILS } = require('../db/seed');
 const logger = require('../utils/logger');
 const { nullifyUserReferences } = require('./admin.controller');
 
@@ -80,29 +80,16 @@ async function register(req, res) {
     [orgName, slug, starterPlan.id, email]
   );
 
-  // Create admin membership
+  // Create admin membership (stays in platform DB)
   await query('INSERT INTO memberships (org_id, user_id, role) VALUES ($1,$2,$3)', [org.id, user.id, 'administrator']);
 
-  // Seed system guardrails for this org
-  for (let i = 0; i < SYSTEM_GUARDRAILS.length; i++) {
-    const g = SYSTEM_GUARDRAILS[i];
-    await query(
-      `INSERT INTO guardrails (org_id, name, description, type, severity, action, pattern, color, enabled, is_system, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10)`,
-      [org.id, g.name, g.description, g.type, g.severity, g.action, g.pattern, g.color, g.enabled, i]
-    );
+  // Provision isolated tenant database — creates DB, applies schema, seeds guardrails + default policy
+  try {
+    await provisionTenantDb(org.id, user.id);
+  } catch (err) {
+    logger.error('Tenant provisioning failed during registration', { orgId: org.id, error: err.message });
+    // Don't fail registration — admin can reprovision later; org is usable with platform fallback
   }
-
-  // Seed default policy
-  const guardrailRows = await query(
-    "SELECT id FROM guardrails WHERE org_id=$1 AND name IN ('PII detection','Prompt injection','Toxicity filter','Secrets detection','Hallucination check','Output length cap')",
-    [org.id]
-  );
-  const gids = guardrailRows.rows.map(r => r.id);
-  await query(
-    "INSERT INTO policies (org_id, name, description, guardrail_ids, is_active, created_by) VALUES ($1,'Default policy','Standard guardrails for all traffic',$2,true,$3)",
-    [org.id, gids, user.id]
-  );
 
   await sendVerificationEmail(user, verifyToken);
 

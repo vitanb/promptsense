@@ -14,8 +14,7 @@ router.get('/audit',     authenticate, loadOrg, requireTrialAccess(), ctrl.getAu
 
 // CSV export — blocked during free trial
 router.get('/audit/export', authenticate, loadOrg, requireTrialAccess(), async (req, res) => {
-  const { query } = require('../db/pool');
-  const { rows } = await query(
+  const { rows } = await req.db.query(
     'SELECT * FROM audit_events WHERE org_id=$1 ORDER BY created_at DESC LIMIT 10000',
     [req.orgId]
   );
