@@ -17,7 +17,10 @@ const path = require('path');
 const { query: platformQuery } = require('./pool');
 const logger = require('../utils/logger');
 
-const TENANT_MIGRATION_PATH = path.join(__dirname, '../../../migrations/tenant/001_tenant_schema.sql');
+// Resolve relative to the project root (works both locally and on Render/Railway)
+// __dirname = <root>/src/db  →  up 2 = <root>  →  migrations/tenant/...
+// On Render, the deploy root is backend/, so this resolves correctly.
+const TENANT_MIGRATION_PATH = path.resolve(__dirname, '..', '..', 'migrations', 'tenant', '001_tenant_schema.sql');
 
 const SYSTEM_GUARDRAILS = [
   { name: 'PII detection',       description: 'Block emails, SSNs, phone numbers, credit cards',     type: 'input',  severity: 'critical', action: 'block', pattern: String.raw`\d{3}-\d{2}-\d{4}|[\w.]+@[\w]+\.\w+|\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b`, color: '#D85A30', enabled: true  },
