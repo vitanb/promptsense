@@ -99,7 +99,7 @@ async function register(req, res) {
   logger.info('New user registered', { userId: user.id, orgId: org.id });
 
   res.status(201).json({
-    user: { id: user.id, email: user.email, fullName: user.full_name },
+    user: { id: user.id, email: user.email, fullName: user.full_name, emailVerified: false },
     orgs: [{ org_id: org.id, org_name: org.name, slug: org.slug, role: 'administrator', plan_name: 'starter' }],
     accessToken,
     refreshToken,

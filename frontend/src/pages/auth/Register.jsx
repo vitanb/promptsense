@@ -5,20 +5,23 @@ import { authApi } from '../../services/api';
 import { Input, Btn, Alert } from '../../components/UI';
 import { AuthLayout, AuthLogo } from './Login';
 
+
 // ── Register ──────────────────────────────────────────────────────────────
 export function Register() {
   const [form, setForm] = useState({ email: '', password: '', fullName: '', orgName: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
-  const { register } = useAuth();
+  const { saveSession } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true);
     try {
-      await register(form);
-      setRegistered(true); // show verify email screen instead of redirecting
+      // Call API directly so we can show the verify screen before saving session
+      const data = await authApi.register(form);
+      saveSession(data);       // store tokens silently
+      setRegistered(true);     // show "check inbox" screen — do NOT navigate yet
     }
     catch (err) { setError(err.response?.data?.error || 'Registration failed'); }
     finally { setLoading(false); }
