@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { authApi } from '../../services/api';
 import { Input, Btn, Alert } from '../../components/UI';
@@ -11,52 +11,22 @@ export function Register() {
   const [form, setForm] = useState({ email: '', password: '', fullName: '', orgName: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [registered, setRegistered] = useState(false);
   const { saveSession } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true);
     try {
-      // Call API directly so we can show the verify screen before saving session
       const data = await authApi.register(form);
-      saveSession(data);       // store tokens silently
-      setRegistered(true);     // show "check inbox" screen — do NOT navigate yet
+      saveSession(data);
+      // Navigate to a standalone verify-notice page that is NOT wrapped in RequireGuest
+      navigate('/auth/check-email', { state: { email: form.email } });
     }
     catch (err) { setError(err.response?.data?.error || 'Registration failed'); }
     finally { setLoading(false); }
   };
 
   const f = (k) => ({ value: form[k], onChange: e => setForm(p => ({ ...p, [k]: e.target.value })) });
-
-  // ── Post-registration: ask user to verify email ──
-  if (registered) {
-    return (
-      <AuthLayout>
-        <AuthLogo subtitle="Enterprise AI Guardrails" />
-        <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', marginBottom: 8 }}>
-            Check your inbox
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 20 }}>
-            We sent a verification link to <strong style={{ color: 'var(--text)' }}>{form.email}</strong>.
-            <br />Click the link in the email to activate your account.
-          </p>
-          <Alert type="info" message="Can't find it? Check your spam or junk folder." />
-          <p style={{ marginTop: 20, fontSize: 13, color: 'var(--text2)' }}>
-            Already verified?{' '}
-            <span
-              style={{ color: 'var(--accent-light)', fontWeight: 500, cursor: 'pointer' }}
-              onClick={() => navigate('/dashboard/onboarding')}
-            >
-              Go to dashboard →
-            </span>
-          </p>
-        </div>
-      </AuthLayout>
-    );
-  }
 
   return (
     <AuthLayout wide>
@@ -246,6 +216,39 @@ export function VerifyEmail() {
         <Link to="/auth/login" style={{ fontSize: 13, color: 'var(--accent-light)' }}>
           → Go to sign in
         </Link>
+      </div>
+    </AuthLayout>
+  );
+}
+
+// ── Check email (post-registration) ───────────────────────────────────────
+export function CheckEmail() {
+  const { state } = useLocation();
+  const navigate = useNavigate();
+  const email = state?.email || 'your inbox';
+
+  return (
+    <AuthLayout>
+      <AuthLogo subtitle="Enterprise AI Guardrails" />
+      <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', marginBottom: 8 }}>
+          Check your inbox
+        </h1>
+        <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 20 }}>
+          We sent a verification link to <strong style={{ color: 'var(--text)' }}>{email}</strong>.
+          <br />Click the link in the email to activate your account.
+        </p>
+        <Alert type="info" message="Can't find it? Check your spam or junk folder." />
+        <p style={{ marginTop: 20, fontSize: 13, color: 'var(--text2)' }}>
+          Already verified?{' '}
+          <span
+            style={{ color: 'var(--accent-light)', fontWeight: 500, cursor: 'pointer' }}
+            onClick={() => navigate('/dashboard/onboarding')}
+          >
+            Go to dashboard →
+          </span>
+        </p>
       </div>
     </AuthLayout>
   );

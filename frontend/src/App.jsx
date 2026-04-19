@@ -6,7 +6,7 @@ import { Spinner } from './components/UI';
 
 // Auth pages
 import Login          from './pages/auth/Login';
-import Register       from './pages/auth/Register';
+import Register, { CheckEmail } from './pages/auth/Register';
 import ForgotPassword from './pages/auth/ForgotPassword';
 import ResetPassword  from './pages/auth/ResetPassword';
 import VerifyEmail    from './pages/auth/VerifyEmail';
@@ -147,6 +147,7 @@ export default function App() {
         {/* Auth */}
         <Route path="/auth/login"           element={<RequireGuest><Login /></RequireGuest>} />
         <Route path="/auth/register"        element={<RequireGuest><Register /></RequireGuest>} />
+        <Route path="/auth/check-email"     element={<CheckEmail />} />
         <Route path="/auth/forgot-password" element={<ForgotPassword />} />
         <Route path="/auth/reset-password"  element={<ResetPassword />} />
         <Route path="/auth/verify-email"    element={<VerifyEmail />} />
