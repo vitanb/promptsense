@@ -12,6 +12,7 @@ const FROM = process.env.EMAIL_FROM || 'noreply@promptsense.io';
 const BASE = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 async function sendEmail({ to, subject, html }) {
+  logger.info('📧 Email attempt', { to, subject, NODE_ENV: process.env.NODE_ENV, SMTP_HOST: process.env.SMTP_HOST, SMTP_USER: process.env.SMTP_USER, HAS_PASS: !!process.env.SMTP_PASS });
   // Skip sending if SMTP is not configured (logs a warning instead of crashing)
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
     logger.warn('📧 Email not sent — SMTP not configured', { to, subject });
