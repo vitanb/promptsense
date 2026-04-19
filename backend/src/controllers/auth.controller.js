@@ -335,8 +335,13 @@ async function me(req, res) {
       orgs = rows;
     }
 
+    // Always fetch email_verified from DB — JWT claim is stale after verification
+    const { rows: [freshUser] } = await query(
+      'SELECT email_verified FROM users WHERE id=$1', [req.userId]
+    );
+
     res.json({
-      user: { ...req.user, isSuperuser: req.user.is_superuser === true },
+      user: { ...req.user, isSuperuser: req.user.is_superuser === true, emailVerified: freshUser?.email_verified === true },
       orgs,
     });
   } catch (err) {
