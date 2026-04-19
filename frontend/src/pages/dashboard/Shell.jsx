@@ -79,6 +79,11 @@ export default function DashboardShell() {
     <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column', background: 'var(--bg)' }}>
 
       {/* ── Banners ── */}
+      {user && !user.emailVerified && (
+        <div style={{ background: '#92400e', color: '#fef3c7', padding: '7px 20px', fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, zIndex: 100 }}>
+          <span>📧 Please verify your email address — check your inbox (and spam folder) for the verification link.</span>
+        </div>
+      )}
       {isSuspended && (
         <div style={{ background: 'var(--red)', color: '#fff', padding: '7px 20px', fontSize: 12, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8, zIndex: 100 }}>
           <span>⚠️</span>

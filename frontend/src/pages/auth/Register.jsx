@@ -10,17 +10,50 @@ export function Register() {
   const [form, setForm] = useState({ email: '', password: '', fullName: '', orgName: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
   const { register } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true);
-    try { await register(form); navigate('/dashboard/onboarding'); }
+    try {
+      await register(form);
+      setRegistered(true); // show verify email screen instead of redirecting
+    }
     catch (err) { setError(err.response?.data?.error || 'Registration failed'); }
     finally { setLoading(false); }
   };
 
   const f = (k) => ({ value: form[k], onChange: e => setForm(p => ({ ...p, [k]: e.target.value })) });
+
+  // ── Post-registration: ask user to verify email ──
+  if (registered) {
+    return (
+      <AuthLayout>
+        <AuthLogo subtitle="Enterprise AI Guardrails" />
+        <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📧</div>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em', marginBottom: 8 }}>
+            Check your inbox
+          </h1>
+          <p style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, marginBottom: 20 }}>
+            We sent a verification link to <strong style={{ color: 'var(--text)' }}>{form.email}</strong>.
+            <br />Click the link in the email to activate your account.
+          </p>
+          <Alert type="info" message="Can't find it? Check your spam or junk folder." />
+          <p style={{ marginTop: 20, fontSize: 13, color: 'var(--text2)' }}>
+            Already verified?{' '}
+            <span
+              style={{ color: 'var(--accent-light)', fontWeight: 500, cursor: 'pointer' }}
+              onClick={() => navigate('/dashboard/onboarding')}
+            >
+              Go to dashboard →
+            </span>
+          </p>
+        </div>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout wide>
