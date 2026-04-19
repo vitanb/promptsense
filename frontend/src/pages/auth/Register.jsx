@@ -11,16 +11,16 @@ export function Register() {
   const [form, setForm] = useState({ email: '', password: '', fullName: '', orgName: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { saveSession } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault(); setError(''); setLoading(true);
     try {
       const data = await authApi.register(form);
-      saveSession(data);
-      // Navigate to a standalone verify-notice page that is NOT wrapped in RequireGuest
-      navigate('/auth/check-email', { state: { email: form.email } });
+      // Do NOT call saveSession here — that sets user in context which causes
+      // RequireGuest to immediately redirect away before check-email can render.
+      // Instead pass session data through router state; CheckEmail saves it on continue.
+      navigate('/auth/check-email', { state: { email: form.email, sessionData: data } });
     }
     catch (err) { setError(err.response?.data?.error || 'Registration failed'); }
     finally { setLoading(false); }
@@ -225,7 +225,14 @@ export function VerifyEmail() {
 export function CheckEmail() {
   const { state } = useLocation();
   const navigate = useNavigate();
+  const { saveSession } = useAuth();
   const email = state?.email || 'your inbox';
+
+  const handleContinue = () => {
+    // Save session now — user is choosing to enter the app
+    if (state?.sessionData) saveSession(state.sessionData);
+    navigate('/dashboard/onboarding');
+  };
 
   return (
     <AuthLayout>
@@ -241,12 +248,11 @@ export function CheckEmail() {
         </p>
         <Alert type="info" message="Can't find it? Check your spam or junk folder." />
         <p style={{ marginTop: 20, fontSize: 13, color: 'var(--text2)' }}>
-          Already verified?{' '}
           <span
             style={{ color: 'var(--accent-light)', fontWeight: 500, cursor: 'pointer' }}
-            onClick={() => navigate('/dashboard/onboarding')}
+            onClick={handleContinue}
           >
-            Go to dashboard →
+            Continue to dashboard →
           </span>
         </p>
       </div>
