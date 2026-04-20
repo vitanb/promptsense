@@ -128,12 +128,13 @@ async function loadOrg(req, res, next) {
 
   // ── Standard JWT auth: verify membership ────────────────────────────────────
   const { rows } = await query(
-    `${ORG_SELECT}
+    `${ORG_SELECT},
+     m.role as member_role, m.active as member_active
      JOIN memberships m ON m.org_id = o.id
      WHERE m.user_id = $1 AND m.org_id = $2`,
     [req.userId, orgId]
   );
-  if (!rows[0] || !rows[0].active) return res.status(403).json({ error: 'Access denied to this organization' });
+  if (!rows[0] || !rows[0].member_active) return res.status(403).json({ error: 'Access denied to this organization' });
 
   if (rows[0].deleted_at) return res.status(403).json({ error: 'This organization has been deleted', code: 'ORG_DELETED' });
 
@@ -146,7 +147,7 @@ async function loadOrg(req, res, next) {
 
   req.org = rows[0];
   req.orgId = orgId;
-  req.role = rows[0].role;
+  req.role = rows[0].member_role;
   attachTenantDb(req, rows[0]);
   next();
 }
