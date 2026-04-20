@@ -128,9 +128,9 @@ async function loadOrg(req, res, next) {
 
   // ── Standard JWT auth: verify membership ────────────────────────────────────
   const { rows } = await query(
-    `${ORG_SELECT},
-     m.role as member_role, m.active as member_active
-     JOIN memberships m ON m.org_id = o.id
+    `SELECT *, m.role as member_role, m.active as member_active
+     FROM (${ORG_SELECT}) org_data
+     JOIN memberships m ON m.org_id = org_data.org_id
      WHERE m.user_id = $1 AND m.org_id = $2`,
     [req.userId, orgId]
   );
