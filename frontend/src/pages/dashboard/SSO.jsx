@@ -113,7 +113,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
 const DEFAULT_FORM = {
   providerType: 'oidc',
   enabled: false,
-  emailDomain: '',
+  emailDomains: '',   // comma-separated string in UI, sent as array to backend
   // OIDC
   discoveryUrl: '',
   clientId: '',
@@ -160,7 +160,7 @@ export default function SSO() {
           ...f,
           providerType:   cfg.provider_type    || 'oidc',
           enabled:        cfg.enabled          ?? false,
-          emailDomain:    cfg.email_domain     || '',
+          emailDomains:   (cfg.email_domains?.length ? cfg.email_domains : cfg.email_domain ? [cfg.email_domain] : []).join(', '),
           discoveryUrl:   cfg.discovery_url    || '',
           clientId:       cfg.client_id        || '',
           clientSecret:   '',   // never pre-fill — server never returns it
@@ -186,7 +186,15 @@ export default function SSO() {
   const save = async () => {
     setError(''); setSaving(true); setSaved(false);
     try {
-      await configApi.upsertSso(orgId, form);
+      // Convert comma-separated emailDomains string to array before sending
+      const payload = {
+        ...form,
+        emailDomains: form.emailDomains
+          .split(',')
+          .map(d => d.trim().toLowerCase())
+          .filter(Boolean),
+      };
+      await configApi.upsertSso(orgId, payload);
       setHasConfig(true);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -218,7 +226,7 @@ export default function SSO() {
             <div style={{ fontSize:13, fontWeight:500 }}>SSO is {form.enabled ? 'enabled' : 'disabled'}</div>
             <div style={{ fontSize:11, color:'var(--c-text3)' }}>
               {form.enabled
-                ? `Users with @${form.emailDomain || '...'} email will be redirected to your identity provider`
+                ? `Users with ${form.emailDomains ? form.emailDomains.split(',').map(d => `@${d.trim()}`).join(', ') : '...'} email will be redirected to your identity provider`
                 : 'Enable SSO after completing configuration below'}
             </div>
           </div>
@@ -251,11 +259,11 @@ export default function SSO() {
           ))}
         </div>
 
-        <Field label="Email domain" hint="Users whose email matches this domain will be auto-redirected to SSO login.">
+        <Field label="Email domains" hint="Comma-separated list of domains. Users with matching emails will be auto-redirected to SSO. e.g. acme.com, gmail.com">
           <Input
-            value={form.emailDomain}
-            onChange={setEv('emailDomain')}
-            placeholder="acme.com"
+            value={form.emailDomains}
+            onChange={setEv('emailDomains')}
+            placeholder="acme.com, gmail.com, company.net"
             disabled={!canEdit}
           />
         </Field>

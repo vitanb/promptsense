@@ -265,7 +265,8 @@ async function checkEmail(req, res) {
       `SELECT sc.provider_type, o.slug
        FROM sso_configs sc
        JOIN organizations o ON o.id = sc.org_id
-       WHERE sc.email_domain = $1 AND sc.enabled = true AND o.deleted_at IS NULL`,
+       WHERE ($1 = ANY(sc.email_domains) OR sc.email_domain = $1)
+         AND sc.enabled = true AND o.deleted_at IS NULL`,
       [domain]
     );
 
@@ -512,7 +513,7 @@ async function samlMetadata(req, res) {
 async function getSsoConfig(req, res) {
   try {
     const { rows: [cfg] } = await query(
-      `SELECT id, provider_type, enabled, email_domain,
+      `SELECT id, provider_type, enabled, email_domain, email_domains,
               discovery_url, client_id,
               idp_sso_url, idp_entity_id, idp_certificate, sp_entity_id,
               attr_email, attr_name, auto_provision, default_role,
@@ -530,7 +531,7 @@ async function getSsoConfig(req, res) {
 async function upsertSsoConfig(req, res) {
   try {
     const {
-      providerType, enabled, emailDomain,
+      providerType, enabled, emailDomain, emailDomains,
       discoveryUrl, clientId, clientSecret,
       idpSsoUrl, idpEntityId, idpCertificate, spEntityId,
       attrEmail, attrName, autoProvision, defaultRole,
@@ -546,10 +547,18 @@ async function upsertSsoConfig(req, res) {
       ? encrypt(clientSecret)
       : (existing?.encrypted_client_secret || null);
 
+    // Normalise domains — accept either emailDomains array or legacy emailDomain string
+    const domainsArray = Array.isArray(emailDomains)
+      ? emailDomains.map(d => d.toLowerCase().trim()).filter(Boolean)
+      : emailDomain
+        ? [emailDomain.toLowerCase().trim()]
+        : [];
+
     const values = [
       providerType || 'oidc',
       enabled ?? false,
-      emailDomain?.toLowerCase() || null,
+      domainsArray[0] || null,   // keep email_domain in sync for backward compat
+      domainsArray,              // new email_domains array
       discoveryUrl || null,
       clientId || null,
       encSecret,
@@ -567,29 +576,30 @@ async function upsertSsoConfig(req, res) {
     if (existing) {
       const { rows: [updated] } = await query(
         `UPDATE sso_configs SET
-           provider_type=$1, enabled=$2, email_domain=$3,
-           discovery_url=$4, client_id=$5, encrypted_client_secret=$6,
-           idp_sso_url=$7, idp_entity_id=$8, idp_certificate=$9, sp_entity_id=$10,
-           attr_email=$11, attr_name=$12, auto_provision=$13, default_role=$14,
+           provider_type=$1, enabled=$2, email_domain=$3, email_domains=$4,
+           discovery_url=$5, client_id=$6, encrypted_client_secret=$7,
+           idp_sso_url=$8, idp_entity_id=$9, idp_certificate=$10, sp_entity_id=$11,
+           attr_email=$12, attr_name=$13, auto_provision=$14, default_role=$15,
            updated_at=now()
-         WHERE org_id=$15
-         RETURNING id, provider_type, enabled, email_domain, discovery_url, client_id,
+         WHERE org_id=$16
+         RETURNING id, provider_type, enabled, email_domain, email_domains,
+                   discovery_url, client_id,
                    idp_sso_url, idp_entity_id, idp_certificate, sp_entity_id,
                    attr_email, attr_name, auto_provision, default_role`,
         [...values, req.orgId]
       );
       cfg = updated;
-      // Bust cached OIDC client so new credentials take effect immediately
       oidcClientCache.delete(req.orgId);
     } else {
       const { rows: [inserted] } = await query(
         `INSERT INTO sso_configs
-           (org_id, provider_type, enabled, email_domain,
+           (org_id, provider_type, enabled, email_domain, email_domains,
             discovery_url, client_id, encrypted_client_secret,
             idp_sso_url, idp_entity_id, idp_certificate, sp_entity_id,
             attr_email, attr_name, auto_provision, default_role)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-         RETURNING id, provider_type, enabled, email_domain, discovery_url, client_id,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+         RETURNING id, provider_type, enabled, email_domain, email_domains,
+                   discovery_url, client_id,
                    idp_sso_url, idp_entity_id, idp_certificate, sp_entity_id,
                    attr_email, attr_name, auto_provision, default_role`,
         [req.orgId, ...values]
