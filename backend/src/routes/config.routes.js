@@ -78,8 +78,8 @@ router.put('/downstream', requireRole('developer'), requireTrialAccess(), valida
   res.status(201).json(ds);
 });
 
-// SSO configuration — blocked during free trial
-router.get('/sso',  requireRole('administrator'), requireTrialAccess(), ssoCtrl.getSsoConfig);
-router.put('/sso',  requireRole('administrator'), requireTrialAccess(), ssoCtrl.upsertSsoConfig);
+// SSO configuration — allowed during trial (enterprise feature, gated by plan upgrade in production)
+router.get('/sso',  requireRole('administrator'), requireTrialAccess({ trial: true }), ssoCtrl.getSsoConfig);
+router.put('/sso',  requireRole('administrator'), requireTrialAccess({ trial: true }), ssoCtrl.upsertSsoConfig);
 
 module.exports = router;
